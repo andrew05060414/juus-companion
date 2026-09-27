@@ -1,0 +1,51 @@
+# Local data: game assets, generated character cards, personal data — never commit (see docs/DATA_POLICY.md)
+data/
+cache/
+*.sqlite
+*.sqlite3
+*.db
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.jks
+*.keystore
+google-services.json
+GoogleService-Info.plist
+
+# Media (game assets must not be committed)
+*.ogg
+*.mp3
+*.wav
+*.m4a
+*.moc3
+*.skel
+*.atlas
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+
+# Node
+node_modules/
+
+# Android
+.gradle/
+local.properties
+app-android/**/build/
+*.apk
+*.aab
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
