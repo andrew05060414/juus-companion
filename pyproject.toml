@@ -1,0 +1,31 @@
+[project]
+name = "juus-companion"
+version = "0.1.0"
+description = "Development workspace for Juus Companion server and local data pipeline."
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3,<9",
+    "ruff>=0.9,<1",
+]
+
+[tool.uv]
+# The repository is a monorepo; server and pipeline are intentionally separate
+# source roots while sharing one locked development toolchain.
+package = false
+
+[tool.pytest.ini_options]
+addopts = ["-ra"]
+filterwarnings = ["error"]
+pythonpath = [".", "server/src", "pipeline/src"]
+testpaths = ["server/tests", "pipeline/tests", "tests"]
+
+[tool.ruff]
+line-length = 100
+src = ["server/src", "pipeline/src", "tools", "tests"]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "UP"]

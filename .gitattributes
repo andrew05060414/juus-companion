@@ -1,0 +1,20 @@
+* text=auto eol=lf
+
+# Keep binary assets out of text diffs even when a future local file is inspected.
+*.aac binary
+*.atlas binary
+*.avif binary
+*.bmp binary
+*.gif binary
+*.ico binary
+*.jpeg binary
+*.jpg binary
+*.m4a binary
+*.moc3 binary
+*.mp3 binary
+*.ogg binary
+*.opus binary
+*.png binary
+*.skel binary
+*.wav binary
+*.webp binary
