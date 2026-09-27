@@ -1,0 +1,12 @@
+[project]
+name = "juus-companion"
+version = "0.1.0"
+description = "碧蓝航线同人陪伴型 AI 啾信 Juus Companion"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+

@@ -31,3 +31,22 @@
 ## 许可证
 
 除 `app-android/`（GPL-3.0，继承自 blyy）外，本仓库以 [AGPL-3.0](LICENSE) 发布。游戏相关内容的版权归其各自权利人所有，不在本许可证范围内。
+## 快速开始
+
+### 运行人设流水线 (Persona Pipeline)
+
+从零拉取数据、抽取素材、生成首批 8 位角色卡、自动质检并导出：
+
+```bash
+# 激活虚拟环境并安装依赖
+uv venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+uv pip install pytest
+
+# 运行全量人设流水线
+python pipeline/run.py
+
+# 仅运行单元测试（只使用自造虚构角色数据）
+pytest -v
+```
+
