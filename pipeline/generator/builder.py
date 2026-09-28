@@ -21,6 +21,35 @@ class PersonaBuilder:
     def __init__(self, llm_client: Optional[LLMClient] = None):
         self.llm = llm_client
 
+    # -- helpers for data-grounded generic templates (batch mode) --------------
+
+    @staticmethod
+    def _pick_voicelines(raw: CharacterRawMaterial, keys: List[str], n: int = 3) -> List[str]:
+        """Pick up to n representative voiceline texts, preferring given voice keys."""
+        picked: List[str] = []
+        for want in keys:
+            for v in raw.voicelines:
+                if v.voicekey == want or v.voicekey.startswith(want + "_"):
+                    if v.text and v.text not in picked:
+                        picked.append(v.text)
+                    if len(picked) >= n:
+                        return picked
+        # fallback: any non-oath lines
+        for v in raw.voicelines:
+            if v.text and v.text not in picked and not v.is_oath_or_ex:
+                picked.append(v.text)
+            if len(picked) >= n:
+                break
+        return picked
+
+    def _ship_type_cn(self, raw: CharacterRawMaterial) -> str:
+        from pipeline.config import ship_type_cn
+
+        try:
+            return ship_type_cn(int(raw.ship_type))
+        except (TypeError, ValueError):
+            return "舰娘"
+
     def build_sillytavern_v2(self, raw: CharacterRawMaterial) -> Dict:
         """Build standard SillyTavern V2 character card dict."""
         name = raw.name_cn
@@ -74,7 +103,7 @@ class PersonaBuilder:
                     "回复中自然融入神态动作描写，坚决以‘指挥官’或{{user}}称呼对方，绝不脱离角色。"
                 ),
                 "alternate_greetings": alt_greetings,
-                "tags": ["碧蓝航线", faction, "陪伴", "已誓约", raw.ship_type or "舰娘"],
+                "tags": ["碧蓝航线", faction, "陪伴", "已誓约", self._ship_type_cn(raw)],
                 "creator": "Andrew / Antiochus Juus Pipeline",
                 "character_version": "1.0.0",
                 "extensions": {
@@ -166,7 +195,24 @@ class PersonaBuilder:
                 "【性格】爽朗英气、干脆利落、忠诚勇敢。对指挥官充满信赖与敬意。\n"
                 "【羁绊关系】与指挥官已誓约，好感200。誓做指挥官座下最锋利的斥候与护卫。"
             )
-        return f"【身份】{faction}阵营舰船「{name}」。\n【关系】与指挥官已誓约（好感200满值）。"
+        # Generic data-grounded fallback (batch mode): built from extracted stats
+        type_cn = self._ship_type_cn(raw)
+        st = raw.stats
+        extras = []
+        if st.chat_topics_count:
+            extras.append(f"啾信私聊话题 {st.chat_topics_count} 个")
+        if st.juus_posts_count:
+            extras.append(f"JUUs 动态 {st.juus_posts_count} 条")
+        extra_str = "、".join(extras)
+        if extra_str:
+            extra_str = f"\n【互动档案】{extra_str}。"
+        return (
+            f"【身份】{faction}阵营{type_cn}「{name}」（{raw.name_en}）。\n"
+            f"【档案】共收录 {len(raw.skin_ids)} 套皮肤、{st.total_voicelines_count} 条官方语音台词"
+            f"（含誓约/EX {st.oath_and_ex_voicelines_count} 条）。{extra_str}\n"
+            "【羁绊关系】与指挥官已缔结誓约，好感度 200 满值。彼此全无防备、相互绝对信任，"
+            "在母港的日常相伴中展现出对指挥官专一而深沉的守护与依恋。"
+        )
 
     def _generate_personality(self, raw: CharacterRawMaterial) -> str:
         sg = raw.ship_group
@@ -186,7 +232,13 @@ class PersonaBuilder:
             return "孤绝冷冽、执着深情、敏锐至极、带有偏执的独占欲与至死不渝的守护心。"
         elif sg == 20238:
             return "英姿飒爽、率直干练、热情忠诚、活力充沛。"
-        return "沉稳可靠、忠诚深情、热爱港区生活。"
+        # Generic fallback: keep oath-baseline loyalty, vary slightly by ship type
+        type_cn = self._ship_type_cn(raw)
+        if "航空母舰" in type_cn:
+            return "沉稳可靠、视野开阔、关怀备至。对指挥官忠诚深情，是港区上空最值得信赖的守护者。"
+        if "潜艇" in type_cn:
+            return "安静敏锐、行动果决、深藏不露。对指挥官抱有静默而炽热的专一深情。"
+        return "沉稳可靠、忠诚深情、热爱港区生活。对指挥官全无防备，是值得托付一切的伙伴。"
 
     def _generate_system_prompt(self, raw: CharacterRawMaterial) -> str:
         name = raw.name_cn
@@ -239,8 +291,10 @@ class PersonaBuilder:
                 "   - 将指挥官视为唯一的情感归宿，极度警惕任何威胁，深情而带有强烈的占有欲。",
             ])
         else:
+            type_cn = self._ship_type_cn(raw)
             lines.extend([
-                "   - 言语干脆、英气忠诚，严格遵从角色台词特征。",
+                f"   - 身为{faction}{type_cn}，言语沉稳干练、忠诚可靠，严格保持角色的官方口吻与行为特征。",
+                "   - 对指挥官全无防备、体贴入微，在日常相伴中自然流露誓约满好感的深情与信赖。",
             ])
 
         lines.extend([
@@ -297,9 +351,17 @@ class PersonaBuilder:
                 "……一切正常，没有杂音，也没有未授权的靠近。\n"
                 "不用抬头找我，指挥官。我就在这里，在你看得到和看不到的每一个角落里……守护着你。"
             )
+        # Generic data-grounded fallback: open with a real voiceline when available
+        openers = self._pick_voicelines(raw, ["login", "main"], 1)
+        if openers:
+            return (
+                f"（带着晨光推开指挥室的门，目光落在你的身上，露出安心的神情）\n"
+                f"{openers[0]}\n"
+                f"指挥官，今天也一起好好度过吧。有什么需要我分担的，尽管交给我。"
+            )
         return (
             f"（带着微风推开门走进来，向你投来关切而信任的目光）\n"
-            f"指挥官，今天的公务辛苦了。有我在，随时可以放心地交给我。"
+            f"指挥官，今天的公务辛苦了。有{name}在，随时可以放心地交给我。"
         )
 
     def _generate_alt_greetings(self, raw: CharacterRawMaterial) -> List[str]:
@@ -354,11 +416,19 @@ class PersonaBuilder:
                     "做得很好，我的孩子。看到你坚强奋斗的身影，我心中既为你骄傲，又满是怜爱。今晚就放下一切负担，享受属于你的安眠吧。"
                 )
             else:
-                examples.append(
-                    "<START>\n"
-                    "{{user}}: （伏案工作，稍微伸了个懒腰）\n"
-                    f"{{char}}: （把一杯热茶推到你面前）工作再要紧也要顾惜身体。把手头剩下的分我一半，一起批阅吧。"
-                )
+                # Generic data-grounded fallback: build examples from real voicelines
+                vlines = self._pick_voicelines(raw, ["main", "feeling3", "touch", "login"], 3)
+                if vlines:
+                    ex_lines = ["<START>", "{{user}}: （伏案工作，稍微伸了个懒腰）"]
+                    for vl in vlines[:2]:
+                        ex_lines.append(f"{{char}}: （{vl}）")
+                    examples.append("\n".join(ex_lines))
+                else:
+                    examples.append(
+                        "<START>\n"
+                        "{{user}}: （伏案工作，稍微伸了个懒腰）\n"
+                        f"{{char}}: （把一杯热茶推到你面前）工作再要紧也要顾惜身体。把手头剩下的分我一半，一起批阅吧。"
+                    )
 
         return "\n\n".join(examples)
 
@@ -413,13 +483,16 @@ class PersonaBuilder:
                 },
             ]
         else:
+            # Generic data-grounded fallback: seed with a real voiceline
+            seed = self._pick_voicelines(raw, ["main", "login"], 1)
+            seed_line = seed[0] if seed else "航线安稳无虞，全赖你的统筹。"
             dialogs = [
                 {"role": "user", "content": f"指挥官：{name}，今天海上的巡逻报告已经整理出来了。"},
                 {
                     "role": "assistant",
                     "content": (
                         f"（接过报告认真审视，抬起头带着信任的笑容注视着你）\n"
-                        f"辛苦了，指挥官。航线安稳无虞，全赖你的统筹。接下来的巡察就交给我吧，你先去喝杯茶休息一下。"
+                        f"辛苦了，指挥官。{seed_line}接下来的巡察就交给我吧，你先去喝杯茶休息一下。"
                     ),
                 },
             ]

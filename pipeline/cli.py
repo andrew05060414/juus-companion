@@ -14,6 +14,8 @@ from pipeline.config import (
     DEFAULT_DATA_DIR,
     DEFAULT_OUTPUT_DIR,
     DEFAULT_RAW_DIR,
+    ShipTargetConfig,
+    build_ship_registry,
 )
 from pipeline.exporter.astrbot import export_astrbot_persona
 from pipeline.exporter.brain import export_juus_brain_format
@@ -34,17 +36,117 @@ logging.basicConfig(
 logger = logging.getLogger("pipeline")
 
 
+def is_exported(output_dir: Path, astrbot_id: str) -> bool:
+    """Resume check: all four export formats already generated for this persona."""
+    expected = [
+        output_dir / "sillytavern" / f"{astrbot_id}_sillytavern_v2.json",
+        output_dir / "lorebook" / f"{astrbot_id}_lorebook.json",
+        output_dir / "astrbot" / f"{astrbot_id}_astrbot.json",
+        output_dir / "juus_brain" / f"{astrbot_id}_juus_brain.json",
+    ]
+    return all(p.exists() for p in expected)
+
+
+def export_l0_l1_lorebooks(output_dir: Path, faction_keys: List[str]) -> List[Path]:
+    """Export L0 port-common and per-faction L1 lorebooks (generated once per run)."""
+    from dataclasses import asdict
+
+    from pipeline.generator.lorebook import L0_PORT_ENTRIES, L1_FACTION_ENTRIES
+
+    lore_dir = output_dir / "lorebook"
+    lore_dir.mkdir(parents=True, exist_ok=True)
+    written: List[Path] = []
+
+    l0_path = lore_dir / "L0_port_common.json"
+    export_standalone_lorebook(
+        {"layer": "L0_port", "entries": [asdict(e) for e in L0_PORT_ENTRIES]},
+        l0_path,
+    )
+    written.append(l0_path)
+
+    for fk in sorted(set(faction_keys)):
+        entries = L1_FACTION_ENTRIES.get(fk, [])
+        if not entries:
+            logger.warning("No L1 lorebook entries defined for faction '%s'", fk)
+            continue
+        p = lore_dir / f"L1_{fk}.json"
+        export_standalone_lorebook(
+            {"layer": f"L1_{fk}", "entries": [asdict(e) for e in entries]}, p
+        )
+        written.append(p)
+    return written
+
+
+def resolve_targets(
+    raw_dir: Path,
+    batch: bool = False,
+    limit: Optional[int] = None,
+    faction: Optional[str] = None,
+    groups: Optional[List[int]] = None,
+) -> Dict[int, ShipTargetConfig]:
+    """Resolve the ship target registry for this run.
+
+    - No flags and no groups -> hardcoded BATCH_1_SHIPS pilot list.
+    - --groups -> those groups resolved from the full registry (hand-written
+      BATCH_1 configs take precedence for the original 8 ships).
+    - --batch -> full list-driven registry from ship_data_statistics
+      (CN primary, EN fallback), optionally filtered by faction
+      and capped by limit (deterministic: sorted by ship_group).
+    """
+    if not batch and not groups:
+        return dict(BATCH_1_SHIPS)
+    registry = build_ship_registry(
+        raw_dir / "CN/sharecfgdata/ship_data_statistics.json",
+        raw_dir / "EN/sharecfgdata/ship_data_statistics.json",
+    )
+    # Hand-written BATCH_1 configs (notes, astrbot_id, merges) take precedence.
+    for g, cfg in BATCH_1_SHIPS.items():
+        if g in registry:
+            registry[g] = cfg
+    if groups is not None:
+        # Explicit group list: keep registry entries; unknown groups are left
+        # out and derived from raw stats at extraction time (legacy behavior).
+        return {g: registry[g] for g in groups if g in registry}
+    if faction:
+        registry = {g: c for g, c in registry.items() if c.faction_key == faction}
+    items = sorted(registry.items())
+    if limit is not None:
+        items = items[:limit]
+    return dict(items)
+
+
 def run_pipeline(
     raw_dir: Path = DEFAULT_RAW_DIR,
     output_dir: Path = DEFAULT_OUTPUT_DIR,
     groups: Optional[List[int]] = None,
     force_fetch: bool = False,
     offline: bool = False,
+    batch: bool = False,
+    limit: Optional[int] = None,
+    faction: Optional[str] = None,
+    resume: bool = False,
+    targets: Optional[Dict[int, ShipTargetConfig]] = None,
 ) -> int:
     """Execute complete end-to-end persona pipeline."""
-    target_groups = groups or list(BATCH_1_SHIPS.keys())
+    if targets is None:
+        targets = resolve_targets(raw_dir, batch=batch, limit=limit, faction=faction, groups=groups)
+    target_groups = groups or sorted(targets.keys())
+
+    if resume:
+        before = len(target_groups)
+        target_groups = [
+            g for g in target_groups if not is_exported(output_dir, targets[g].astrbot_id)
+        ]
+        skipped = before - len(target_groups)
+        if skipped:
+            print(f"ℹ 断点续跑：跳过已生成的 {skipped} 位角色")
+    if not target_groups:
+        print("ℹ 没有需要处理的角色（全部已生成或名单为空）。")
+        return 0
+
     print("=" * 80)
     print("   啾信 Juus Companion - 人设流水线 (Persona Pipeline v1)")
+    print(f"   模式: {'批量名单驱动' if batch else '试点名单 (BATCH_1_SHIPS)'}")
     print(f"   目标角色数量: {len(target_groups)} 位")
     print(f"   原始数据目录: {raw_dir}")
     print(f"   输出交付目录: {output_dir}")
@@ -69,7 +171,7 @@ def run_pipeline(
     # 2. Extraction layer
     print("\n[Step 2/5] 抽取层：聚合角色私聊、动态、语音台词与档案...")
     aggregator = RawDataAggregator(raw_dir=raw_dir)
-    materials = aggregator.extract_batch(target_groups)
+    materials = aggregator.extract_batch(target_groups, targets=targets)
 
     print("\n" + "-" * 78)
     print(f"{'角色名':<16} {'ship_group':<10} {'阵营':<8} {'私聊话题':<8} {'台词数':<8} {'誓约/EX':<8} {'音频链':<8}")
@@ -179,8 +281,22 @@ def run_pipeline(
         export_juus_brain_format(card, mat, brain_path)
 
     print(f"✓ 已成功导出全套格式到: {output_dir.resolve()}")
+
+    # 6. L0/L1 worldbooks (once per run, shared across characters)
+    print("\n[Step 6/6] 世界书层：导出 L0 母港通用 / L1 阵营世界书（全员共享）...")
+    faction_keys = [materials[g].faction_key for g in target_groups]
+    l0l1_files = export_l0_l1_lorebooks(output_dir, faction_keys)
+    print(f"✓ L0/L1 世界书已导出 ({len(l0l1_files)} 个文件)")
+
     print("=" * 80)
-    print("   人设流水线运行完毕！所有质检均已通过，交付物已齐备。")
+    if qa_report.passed_characters == qa_report.total_characters:
+        print("   人设流水线运行完毕！所有质检均已通过，交付物已齐备。")
+    else:
+        failed = qa_report.total_characters - qa_report.passed_characters
+        print(
+            f"   人设流水线运行完毕：{qa_report.passed_characters}/{qa_report.total_characters} 通过，"
+            f"{failed} 未通过（详见质检报告）。"
+        )
     print("=" * 80)
     return 0
 
@@ -196,6 +312,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     run_parser.add_argument("--groups", type=int, nargs="*", default=None, help="Ship group IDs to run")
     run_parser.add_argument("--force-fetch", action="store_true", help="Force re-download raw files")
     run_parser.add_argument("--offline", action="store_true", help="Run without network access")
+    run_parser.add_argument("--batch", action="store_true",
+                            help="Batch mode: build full ship list from ship_data_statistics "
+                                 "(CN primary, EN fallback) instead of BATCH_1_SHIPS")
+    run_parser.add_argument("--limit", type=int, default=None,
+                            help="Cap number of ships in batch mode (deterministic order)")
+    run_parser.add_argument("--faction", type=str, default=None,
+                            help="Filter batch mode by faction_key (e.g. eagle_union, meta_faction)")
+    run_parser.add_argument("--resume", action="store_true",
+                            help="Skip ships whose exports already exist (resume interrupted batch)")
 
     # Fetch command
     fetch_parser = subparsers.add_parser("fetch", help="Fetch raw data only")
@@ -215,12 +340,20 @@ def main(argv: Optional[List[str]] = None) -> int:
         groups = getattr(args, "groups", None)
         force_fetch = getattr(args, "force_fetch", False)
         offline = getattr(args, "offline", False)
+        batch = getattr(args, "batch", False)
+        limit = getattr(args, "limit", None)
+        faction = getattr(args, "faction", None)
+        resume = getattr(args, "resume", False)
         return run_pipeline(
             raw_dir=raw_dir,
             output_dir=output_dir,
             groups=groups,
             force_fetch=force_fetch,
             offline=offline,
+            batch=batch,
+            limit=limit,
+            faction=faction,
+            resume=resume,
         )
     else:
         parser.print_help()

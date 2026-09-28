@@ -86,6 +86,8 @@ class Fetcher:
                     "description": item.description,
                     "cached": not force,
                 }
+            # Polite rate limit: ≤1 req/s against upstream hosts
+            time.sleep(1.0)
 
         manifest_data = {
             "version": "1.0",

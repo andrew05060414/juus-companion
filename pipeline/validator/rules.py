@@ -65,6 +65,21 @@ class AppellationRule:
         ]
 
         if found_forbidden:
+            # Canonical-address exemption (batch mode): if the character's own
+            # official voicelines use 主人 (e.g. Royal Navy maid ships), it is
+            # their authentic form of address, not a generation defect.
+            # Downgrade to a warning instead of failing.
+            only_master = found_forbidden == ["主人"]
+            canonical_master = any("主人" in v.text for v in raw.voicelines)
+            if only_master and canonical_master:
+                return RuleCheckResult(
+                    rule_id=self.RULE_ID,
+                    rule_name=self.RULE_NAME,
+                    passed=True,
+                    severity="warning",
+                    message="角色官方语音本身以'主人'称呼指挥官（如皇家女仆队），视为角色固有称呼，予以放行",
+                    details={"found": found_forbidden, "canonical": True},
+                )
             return RuleCheckResult(
                 rule_id=self.RULE_ID,
                 rule_name=self.RULE_NAME,

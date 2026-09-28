@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -129,17 +131,21 @@ BATCH_1_SHIPS: Dict[int, ShipTargetConfig] = {
     ),
 }
 
-# Faction mapping based on nationality code in ship_data_statistics
-NATIONALITY_MAP: Dict[int, Dict[str, str]] = {
-    1: {"key": "eagle_union", "name": "白鹰", "english_name": "Eagle Union"},
+# Faction mapping based on nationality code in ship_data_statistics.
+# Verified 2026-09-28 against BOTH CN (AzurLaneTools) and EN (Fernando2603)
+# ship_data_statistics.json via hull prefixes in english_name:
+#   6=RN (Regia Marina) -> 撒丁帝国, 7=SN (Soviet Navy) -> 北方联合,
+#   8=FFNF (Free French) -> 自由鸢尾, 9=MNF (Vichy French) -> 维希教廷.
+# NOTE: an earlier version of this map had 6/7/8/9 permuted; fixed per data.
+NATIONALITY_MAP: Dict[int, Dict[str, str]] = {    1: {"key": "eagle_union", "name": "白鹰", "english_name": "Eagle Union"},
     2: {"key": "royal_navy", "name": "皇家", "english_name": "Royal Navy"},
     3: {"key": "sakura_empire", "name": "重樱", "english_name": "Sakura Empire"},
     4: {"key": "iron_blood", "name": "铁血", "english_name": "Iron Blood"},
     5: {"key": "dragon_empery", "name": "东煌", "english_name": "Dragon Empery"},
-    6: {"key": "northern_parliament", "name": "北方联合", "english_name": "Northern Parliament"},
-    7: {"key": "iris_libre", "name": "自由鸢尾", "english_name": "Iris Libre"},
-    8: {"key": "vichya_dominion", "name": "维希教廷", "english_name": "Vichya Dominion"},
-    9: {"key": "sardegna_empire", "name": "撒丁帝国", "english_name": "Sardegna Empire"},
+    6: {"key": "sardegna_empire", "name": "撒丁帝国", "english_name": "Sardegna Empire"},
+    7: {"key": "northern_parliament", "name": "北方联合", "english_name": "Northern Parliament"},
+    8: {"key": "iris_libre", "name": "自由鸢尾", "english_name": "Iris Libre"},
+    9: {"key": "vichya_dominion", "name": "维希教廷", "english_name": "Vichya Dominion"},
     97: {"key": "meta_faction", "name": "META", "english_name": "META"},
 }
 
@@ -151,4 +157,113 @@ DEFAULT_GAME_STATE = {
     "skins": [],
     "imported_from_game": False,
 }
+
+
+# ---------------------------------------------------------------------------
+# Batch mode: list-driven ship registry (Issue #9)
+# ---------------------------------------------------------------------------
+
+# Numeric ship type code -> Chinese ship type name (verified against CN stats)
+SHIP_TYPE_MAP: Dict[int, str] = {
+    1: "驱逐舰",
+    2: "轻巡洋舰",
+    3: "重巡洋舰",
+    4: "战列巡洋舰",
+    5: "战列舰",
+    6: "轻型航空母舰",
+    7: "航空母舰",
+    8: "潜艇",
+    12: "维修舰",
+    17: "潜水母舰",
+    18: "大型巡洋舰",
+    19: "补给舰",
+}
+
+# Playable ship nationalities: 9 factions + META(97).
+# Excluded: 98 (Bulin enhancement material), 96/99/101-115 (collab ships,
+# handled separately), siren units.
+PLAYABLE_NATIONALITIES = {1, 2, 3, 4, 5, 6, 7, 8, 9, 97}
+
+
+def slugify_astrbot_id(english_name: str, ship_group: int) -> str:
+    """Build a deterministic ASCII persona id from the English ship name."""
+    slug = english_name.strip().lower()
+    slug = slug.replace(".meta", "_meta").replace("·", "_")
+    slug = re.sub(r"[^a-z0-9]+", "_", slug).strip("_")
+    if not slug:
+        slug = f"ship_{ship_group}"
+    return slug
+
+
+def build_ship_registry(
+    cn_stats_path: "Path | str",
+    en_stats_path: "Path | str | None" = None,
+) -> Dict[int, ShipTargetConfig]:
+    """Build the full batch target registry from ship_data_statistics tables.
+
+    Rules:
+    - CN table is primary; groups missing in CN fall back to the EN table
+      (flagged with fallback_en=True and a [pending_cn_supplement] note).
+    - Deduplicated by ship_group (id // 10); first CN entry wins.
+    - META ships (nationality 97) stay independent (never merged).
+    - Non-playable nationalities (Bulin, collab, sirens) are excluded.
+    """
+    from pathlib import Path as _Path
+
+    def _load(p) -> Dict:
+        p = _Path(p)
+        if not p.exists():
+            return {}
+        with open(p, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+
+    cn_stats = _load(cn_stats_path)
+    en_stats = _load(en_stats_path) if en_stats_path else {}
+
+    registry: Dict[int, ShipTargetConfig] = {}
+    seen_slugs: Dict[str, int] = {}
+
+    def _register(stat: dict, fallback_en: bool) -> None:
+        group = int(stat.get("id", 0)) // 10
+        if group in registry:
+            return
+        nat = stat.get("nationality", 0)
+        nat_info = NATIONALITY_MAP.get(
+            nat, {"key": "other", "name": "其他", "english_name": "Other"}
+        )
+        name_cn = stat.get("name") or f"Ship_{group}"
+        name_en = stat.get("english_name") or name_cn
+        slug = slugify_astrbot_id(name_en, group)
+        if slug in seen_slugs:  # name collision (e.g. retrofit variants) -> suffix group id
+            slug = f"{slug}_{group}"
+        seen_slugs[slug] = group
+        notes = ""
+        if fallback_en:
+            notes = "CN 数据缺失，已从 Fernando2603/AzurLaneData 补充 [pending_cn_supplement]"
+        registry[group] = ShipTargetConfig(
+            ship_group=group,
+            id=slug,
+            name_cn=name_cn,
+            name_en=name_en,
+            astrbot_id=slug,
+            faction_key=nat_info["key"],
+            faction_cn=nat_info["name"],
+            fallback_en=fallback_en,
+            notes=notes,
+        )
+
+    for _key, stat in cn_stats.items():
+        if isinstance(stat, dict) and stat.get("nationality") in PLAYABLE_NATIONALITIES:
+            _register(stat, fallback_en=False)
+    for _key, stat in en_stats.items():
+        if isinstance(stat, dict) and stat.get("nationality") in PLAYABLE_NATIONALITIES:
+            _register(stat, fallback_en=True)
+
+    return registry
+
+
+def ship_type_cn(type_code: int) -> str:
+    """Chinese display name for a numeric ship type code."""
+    return SHIP_TYPE_MAP.get(type_code, "舰娘")
 

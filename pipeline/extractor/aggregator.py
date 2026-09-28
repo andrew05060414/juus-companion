@@ -269,10 +269,12 @@ class RawDataAggregator:
         self,
         ship_group: int,
         target_cfg: Optional[ShipTargetConfig] = None,
+        targets: Optional[Dict[int, ShipTargetConfig]] = None,
     ) -> CharacterRawMaterial:
         """Extract all materials for a single ship_group."""
         self.load_tables()
-        cfg = target_cfg or BATCH_1_SHIPS.get(ship_group)
+        registry = targets or BATCH_1_SHIPS
+        cfg = target_cfg or registry.get(ship_group)
         stat = self._find_ship_stat(ship_group, fallback_en=cfg.fallback_en if cfg else False)
 
         name_cn = cfg.name_cn if cfg else (stat.get("name", f"Ship_{ship_group}") if stat else f"Ship_{ship_group}")
@@ -328,9 +330,11 @@ class RawDataAggregator:
     def extract_batch(
         self,
         ship_groups: Optional[List[int]] = None,
+        targets: Optional[Dict[int, ShipTargetConfig]] = None,
     ) -> Dict[int, CharacterRawMaterial]:
         """Extract materials for a list of ship_groups, applying variant merges."""
-        groups = ship_groups or list(BATCH_1_SHIPS.keys())
+        registry = targets or BATCH_1_SHIPS
+        groups = ship_groups or list(registry.keys())
         self.load_tables()
 
         # Check if any variant groups need to be extracted
@@ -341,8 +345,8 @@ class RawDataAggregator:
 
         extracted: Dict[int, CharacterRawMaterial] = {}
         for g in all_required_groups:
-            cfg = BATCH_1_SHIPS.get(g)
-            extracted[g] = self.extract_single(g, target_cfg=cfg)
+            cfg = registry.get(g)
+            extracted[g] = self.extract_single(g, target_cfg=cfg, targets=registry)
 
         # Apply variant merges
         result: Dict[int, CharacterRawMaterial] = {}
