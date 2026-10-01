@@ -77,14 +77,14 @@ class RawDataAggregator:
         """Find ship_data_statistics entry by ship_group (id // 10 == ship_group)."""
         stats_tables = [self._cn_stats, self._en_stats] if fallback_en else [self._cn_stats]
         for table in stats_tables:
-            for k, v in table.items():
+            for _k, v in table.items():
                 if isinstance(v, dict):
                     sid = v.get("id", 0)
                     if sid // 10 == ship_group:
                         return v
         if not fallback_en and self._en_stats:
             # Try EN fallback if missing in CN
-            for k, v in self._en_stats.items():
+            for _k, v in self._en_stats.items():
                 if isinstance(v, dict) and v.get("id", 0) // 10 == ship_group:
                     return v
         return None
@@ -185,7 +185,6 @@ class RawDataAggregator:
         sg_str = str(ship_group)
         is_fallback = target_cfg.fallback_en if target_cfg else False
 
-        words_tables = [self._en_words] if is_fallback else [self._cn_words, self._en_words]
         active_table = self._cn_words if (not is_fallback and any(k.startswith(sg_str) for k in self._cn_words)) else self._en_words
 
         # Skin words
