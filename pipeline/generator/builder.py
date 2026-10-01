@@ -425,7 +425,7 @@ class PersonaBuilder:
                     examples.append(
                         "<START>\n"
                         "{{user}}: （伏案工作，稍微伸了个懒腰）\n"
-                        f"{{char}}: （把一杯热茶推到你面前）工作再要紧也要顾惜身体。把手头剩下的分我一半，一起批阅吧。"
+                        "{{char}}: （把一杯热茶推到你面前）工作再要紧也要顾惜身体。把手头剩下的分我一半，一起批阅吧。"
                     )
 
         return "\n\n".join(examples)
