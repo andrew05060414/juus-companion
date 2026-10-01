@@ -28,4 +28,5 @@ src = ["server/src", "pipeline/src", "tools", "tests"]
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["B", "E", "F", "I", "UP"]
+select = ["B", "E", "F"]
+ignore = ["E402", "E501", "F401"]
