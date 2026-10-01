@@ -20,7 +20,7 @@ package = false
 addopts = ["-ra"]
 filterwarnings = ["error"]
 pythonpath = [".", "server/src", "pipeline/src"]
-testpaths = ["server/tests", "pipeline/tests", "tests"]
+testpaths = ["server/tests", "pipeline/tests", "pipeline/eval", "tests"]
 
 [tool.ruff]
 line-length = 100
