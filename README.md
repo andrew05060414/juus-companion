@@ -82,3 +82,13 @@ uv run python tools/check_repository_guard.py --paths server/candidate.ogg
 ## 许可证
 
 除 `app-android/`（GPL-3.0，继承自 blyy）外，本仓库以 [AGPL-3.0](LICENSE) 发布。游戏相关内容的版权归其各自权利人所有，不在本许可证范围内。
+
+
+## 人设流水线
+
+M0-2 已加入本地 persona pipeline：导入公开解包数据、抽取角色信息、生成 SillyTavern / AstrBot / Juus Brain 格式并执行自动质检。游戏原文、语音、图片、Live2D 和生成卡片只保存在已忽略的本地 `data/`，不进入仓库。
+
+```sh
+uv run python pipeline/run.py
+uv run pytest tests/test_batch.py tests/test_e2e_pipeline.py tests/test_exporter.py tests/test_extractor.py tests/test_fetcher.py tests/test_generator.py tests/test_validator.py
+```
