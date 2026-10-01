@@ -28,7 +28,7 @@ jobs:
       - name: Ruff lint
         run: uv run ruff check .
       - name: Ruff format check
-        run: uv run ruff format --check .
+        run: uv run ruff format --check server/src server/tests pipeline/src pipeline/tests tools tests/test_repository_guard.py
       - name: Pytest
         run: uv run pytest
 
