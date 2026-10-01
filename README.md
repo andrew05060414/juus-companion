@@ -92,3 +92,15 @@ M0-2 已加入本地 persona pipeline：导入公开解包数据、抽取角色�
 uv run python pipeline/run.py
 uv run pytest tests/test_batch.py tests/test_e2e_pipeline.py tests/test_exporter.py tests/test_extractor.py tests/test_fetcher.py tests/test_generator.py tests/test_validator.py
 ```
+
+
+## M0-3 大脑形态原型
+
+两个可重复运行的技术原型位于 `prototypes/`：A 为独立 Brain Service，C' 为 AstrBot-hosted bridge。两者只使用虚构角色和本地回环模型网关。
+
+```sh
+python -m unittest discover -s tests -v
+python -m prototypes.run_demo --shape both
+```
+
+比较结论见 [ADR-0003](docs/decisions/ADR-0003-brain-shape.md)，接口草稿见 [OpenAPI draft](docs/openapi-draft.yaml)。ADR-0003 仍保持“提议”，合入原型不代表最终架构批准。

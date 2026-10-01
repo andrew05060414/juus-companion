@@ -1,0 +1,209 @@
+openapi: 3.1.0
+info:
+  title: Juus Companion Brain API
+  version: 0.1.0-draft
+  description: >-
+    M0-3 技术验证后留下的服务端接口契约大纲。角色卡、世界书、聊天记录和
+    推送凭据不属于公开仓库；示例只描述接口形状。
+servers:
+  - url: http://localhost:8000
+    description: Local development only
+tags:
+  - name: conversations
+  - name: groups
+  - name: proactive
+paths:
+  /v1/conversations/{conversation_id}/messages:
+    get:
+      tags: [conversations]
+      summary: Read messages after a cursor
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+        - $ref: '#/components/parameters/AfterCursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Ordered messages and the next cursor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessagePage'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/conversations/direct/messages:
+    post:
+      tags: [conversations]
+      summary: Send one user message to one character
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DirectMessageRequest'
+      responses:
+        '201':
+          description: User message and generated character reply
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageBatch'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+  /v1/groups/{group_id}/messages:
+    post:
+      tags: [groups]
+      summary: Add a user message and run the bounded group director
+      parameters:
+        - $ref: '#/components/parameters/GroupId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupMessageRequest'
+      responses:
+        '201':
+          description: Director decisions, skips, and generated messages
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupTurn'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/proactive/ticks:
+    post:
+      tags: [proactive]
+      summary: Claim due proactive jobs and append generated messages
+      description: >-
+        The production implementation must claim jobs idempotently and create a
+        delivery-ledger row before handing work to FCM/ntfy. The client later
+        acknowledges persistence; a push notification is only a wake-up signal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [now]
+              properties:
+                now:
+                  type: string
+                  format: date-time
+      responses:
+        '200':
+          description: Claimed jobs and their message IDs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProactiveTickResult'
+components:
+  parameters:
+    ConversationId:
+      name: conversation_id
+      in: path
+      required: true
+      schema: {type: string}
+    GroupId:
+      name: group_id
+      in: path
+      required: true
+      schema: {type: string}
+    AfterCursor:
+      name: after
+      in: query
+      required: false
+      schema: {type: string}
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+  responses:
+    NotFound:
+      description: Conversation, group, or character does not exist
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    IdempotencyConflict:
+      description: Reused client message ID with a different payload
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+  schemas:
+    DirectMessageRequest:
+      type: object
+      required: [character_id, content, client_message_id]
+      properties:
+        character_id: {type: string}
+        content: {type: string, minLength: 1, maxLength: 20000}
+        client_message_id: {type: string}
+    GroupMessageRequest:
+      type: object
+      required: [content, client_message_id]
+      properties:
+        content: {type: string, minLength: 1, maxLength: 20000}
+        client_message_id: {type: string}
+        max_rounds: {type: integer, minimum: 1, maximum: 3, default: 3}
+    Message:
+      type: object
+      required: [id, conversation_id, sender_id, role, content, origin, created_at]
+      properties:
+        id: {type: string}
+        conversation_id: {type: string}
+        sender_id: {type: string}
+        role: {type: string, enum: [user, assistant, system]}
+        content: {type: string}
+        origin: {type: string, enum: [single, group, proactive]}
+        turn_id: {type: [string, 'null']}
+        created_at: {type: string, format: date-time}
+    MessageBatch:
+      type: object
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          items: {$ref: '#/components/schemas/Message'}
+    MessagePage:
+      type: object
+      required: [messages, next_cursor]
+      properties:
+        messages:
+          type: array
+          items: {$ref: '#/components/schemas/Message'}
+        next_cursor: {type: [string, 'null']}
+    DirectorDecision:
+      type: object
+      required: [round, selected]
+      properties:
+        round: {type: integer, minimum: 1, maximum: 3}
+        selected:
+          type: string
+          description: Character ID or the literal [SKIP]
+    GroupTurn:
+      type: object
+      required: [turn_id, decisions, messages]
+      properties:
+        turn_id: {type: string}
+        decisions:
+          type: array
+          items: {$ref: '#/components/schemas/DirectorDecision'}
+        messages:
+          type: array
+          items: {$ref: '#/components/schemas/Message'}
+    ProactiveTickResult:
+      type: object
+      required: [claimed, messages]
+      properties:
+        claimed: {type: integer, minimum: 0}
+        messages:
+          type: array
+          items: {$ref: '#/components/schemas/Message'}
+        delivery_ledger_ids:
+          type: array
+          items: {type: string}
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: {type: string}
+        message: {type: string}
