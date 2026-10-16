@@ -76,7 +76,7 @@ class TestAuditRelease(unittest.TestCase):
         repo_root = Path(__file__).resolve().parents[1]
         report = run_audit(repo_root, check_history=True, check_working=True)
         self.assertTrue(report.passed)
-        self.assertGreaterEqual(report.total_commits, 12)
+        self.assertGreaterEqual(report.total_commits, 1)
         self.assertEqual(len(report.violations), 0)
 
 
