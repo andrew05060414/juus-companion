@@ -44,7 +44,7 @@ CHARACTER_CATCHPHRASE_MAP: Dict[int, List[str]] = {
 
 
 class AppellationRule:
-    """Checks that the character addresses the user as 指挥官 or {{user}}."""
+    """Checks that the character addresses the user as appellation_user or {{user}}."""
 
     RULE_ID = "RULE_APPELLATION"
     RULE_NAME = "称呼规范检查"
@@ -54,11 +54,14 @@ class AppellationRule:
         sys_prompt = data.get("system_prompt", "")
         mes_example = data.get("mes_example", "")
         first_mes = data.get("first_mes", "")
+        post_history = data.get("post_history_instructions", "")
 
-        has_commander = "指挥官" in sys_prompt or "指挥官" in mes_example or "指挥官" in first_mes
+        appellation = getattr(raw, "appellation_user", None) or "指挥官"
+
+        has_target = appellation in sys_prompt or appellation in mes_example or appellation in first_mes
         has_user_var = "{{user}}" in sys_prompt or "{{user}}" in mes_example or "{{user}}" in first_mes
 
-        forbidden_appellations = ["主人", "玩家", "用户", "亲爱的用户"]
+        forbidden_appellations = [fa for fa in ["主人", "玩家", "用户", "亲爱的用户"] if fa != appellation]
         found_forbidden = [
             fa for fa in forbidden_appellations
             if fa in sys_prompt or fa in mes_example
@@ -89,22 +92,38 @@ class AppellationRule:
                 details={"found": found_forbidden},
             )
 
-        if not (has_commander or has_user_var):
-            return RuleCheckResult(
-                rule_id=self.RULE_ID,
-                rule_name=self.RULE_NAME,
-                passed=False,
-                severity="error",
-                message="未检测到对‘指挥官’或{{user}}的标准称呼",
-                details={},
+        if appellation != "指挥官":
+            has_hardcoded_commander = (
+                "始终以‘指挥官’称呼" in sys_prompt
+                or "坚决以‘指挥官’" in sys_prompt
+                or "坚决以‘指挥官’" in post_history
             )
+            if has_hardcoded_commander or not has_target:
+                return RuleCheckResult(
+                    rule_id=self.RULE_ID,
+                    rule_name=self.RULE_NAME,
+                    passed=False,
+                    severity="error",
+                    message=f"未检测到对‘{appellation}’的标准称呼，或存在写死‘指挥官’称呼",
+                    details={"appellation_user": appellation},
+                )
+        else:
+            if not (has_target or has_user_var):
+                return RuleCheckResult(
+                    rule_id=self.RULE_ID,
+                    rule_name=self.RULE_NAME,
+                    passed=False,
+                    severity="error",
+                    message="未检测到对‘指挥官’或{{user}}的标准称呼",
+                    details={},
+                )
 
         return RuleCheckResult(
             rule_id=self.RULE_ID,
             rule_name=self.RULE_NAME,
             passed=True,
             severity="info",
-            message="称呼规范检查通过，正确锚定‘指挥官’/{{user}}",
+            message=f"称呼规范检查通过，正确锚定‘{appellation}’/{{{{user}}}}",
             details={},
         )
 

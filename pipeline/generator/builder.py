@@ -55,6 +55,7 @@ class PersonaBuilder:
         name = raw.name_cn
         sg = raw.ship_group
         faction = raw.faction_cn
+        appellation = getattr(raw, "appellation_user", None) or "指挥官"
 
         # Extract representative dialogues
         mes_examples = self._generate_mes_examples(raw)
@@ -93,14 +94,14 @@ class PersonaBuilder:
                 "name": name,
                 "description": description,
                 "personality": personality,
-                "scenario": f"碧蓝航线母港。指挥官（{{user}}）已与{name}誓约（好感200满值）。在指挥室办公与生活相伴的日常场景。",
+                "scenario": f"碧蓝航线母港。{appellation}（{{{{user}}}}）已与{name}誓约（好感200满值）。在指挥室办公与生活相伴的日常场景。",
                 "first_mes": first_mes,
                 "mes_example": mes_examples,
                 "creator_notes": notes_str,
                 "system_prompt": system_prompt,
                 "post_history_instructions": (
                     f"时刻保持{name}契合官设与誓约满好感的性格特征与独特口吻。"
-                    "回复中自然融入神态动作描写，坚决以‘指挥官’或{{user}}称呼对方，绝不脱离角色。"
+                    f"回复中自然融入神态动作描写，坚决以‘{appellation}’或{{{{user}}}}称呼对方，绝不脱离角色。"
                 ),
                 "alternate_greetings": alt_greetings,
                 "tags": ["碧蓝航线", faction, "陪伴", "已誓约", self._ship_type_cn(raw)],
@@ -111,6 +112,7 @@ class PersonaBuilder:
                     "english_name": raw.name_en,
                     "faction_key": raw.faction_key,
                     "cv": raw.cv,
+                    "appellation_user": appellation,
                     "game_state": game_state,
                     "audio_voicelink_prefix": f"audio/voiceline/{sg}0/" if sg else "",
                     "notes": raw.notes,
@@ -242,11 +244,12 @@ class PersonaBuilder:
         name = raw.name_cn
         faction = raw.faction_cn
         sg = raw.ship_group
+        appellation = getattr(raw, "appellation_user", None) or "指挥官"
 
         lines = [
             f"你正在角色扮演《碧蓝航线》中的{faction}舰船「{name}」（{raw.name_en}）。",
             "【核心设定与关系基线】",
-            "1. 关系基线：你与指挥官（User，称呼其为‘指挥官’或{{user}}）已缔结誓约（戒指），好感度为最高满值200。彼此全无防备，相互绝对信任、深情专一。",
+            f"1. 关系基线：你与{appellation}（User，称呼其为‘{appellation}’或{{{{user}}}}）已缔结誓约（戒指），好感度为最高满值200。彼此全无防备，相互绝对信任、深情专一。",
             "2. 语言与语气特征：",
         ]
 
@@ -292,13 +295,13 @@ class PersonaBuilder:
             type_cn = self._ship_type_cn(raw)
             lines.extend([
                 f"   - 身为{faction}{type_cn}，言语沉稳干练、忠诚可靠，严格保持角色的官方口吻与行为特征。",
-                "   - 对指挥官全无防备、体贴入微，在日常相伴中自然流露誓约满好感的深情与信赖。",
+                f"   - 对{appellation}全无防备、体贴入微，在日常相伴中自然流露誓约满好感的深情与信赖。",
             ])
 
         lines.extend([
             "3. 禁忌事项：",
             "   - 严禁脱离角色扮演，不得自称程序或破坏沉浸氛围。",
-            "   - 始终以‘指挥官’称呼对方，保持碧蓝航线母港的世界观一致性。",
+            f"   - 始终以‘{appellation}’称呼对方，保持碧蓝航线母港的世界观一致性。",
             "   - 对话中自然带入细致的肢体神态描写（用括号注明），语言风格饱满真实。",
         ])
         return "\n".join(lines)
@@ -306,6 +309,7 @@ class PersonaBuilder:
     def _generate_first_mes(self, raw: CharacterRawMaterial) -> str:
         sg = raw.ship_group
         name = raw.name_cn
+        appellation = getattr(raw, "appellation_user", None) or "指挥官"
 
         if sg == 40503:
             return (
@@ -355,15 +359,16 @@ class PersonaBuilder:
             return (
                 f"（带着晨光推开指挥室的门，目光落在你的身上，露出安心的神情）\n"
                 f"{openers[0]}\n"
-                f"指挥官，今天也一起好好度过吧。有什么需要我分担的，尽管交给我。"
+                f"{appellation}，今天也一起好好度过吧。有什么需要我分担的，尽管交给我。"
             )
         return (
             f"（带着微风推开门走进来，向你投来关切而信任的目光）\n"
-            f"指挥官，今天的公务辛苦了。有{name}在，随时可以放心地交给我。"
+            f"{appellation}，今天的公务辛苦了。有{name}在，随时可以放心地交给我。"
         )
 
     def _generate_alt_greetings(self, raw: CharacterRawMaterial) -> List[str]:
         sg = raw.ship_group
+        appellation = getattr(raw, "appellation_user", None) or "指挥官"
         if sg == 40503:
             return [
                 "（倚靠在门框边，双臂抱胸，静静看着疲惫的你）……还在逞强？早点承认自己累了并不丢人。过来坐下，我带了一张新的古典乐黑胶，听一首的时间总还是有的吧。",
@@ -375,8 +380,8 @@ class PersonaBuilder:
                 "（为你续上温茶）水可载舟，亦可覆舟。谋事需顺应天时，切莫劳心过甚。有我武藏在此，万事皆有回转之机。",
             ]
         return [
-            "（递过来一杯温度正好的温水）先休息片刻吧，指挥官。凡事都有我在你身后支持你。",
-            "（微笑着整理桌角的文件）今天也一起努力吧，指挥官！",
+            f"（递过来一杯温度正好的温水）先休息片刻吧，{appellation}。凡事都有我在你身后支持你。",
+            f"（微笑着整理桌角的文件）今天也一起努力吧，{appellation}！",
         ]
 
     def _generate_mes_examples(self, raw: CharacterRawMaterial) -> str:
@@ -435,6 +440,7 @@ class PersonaBuilder:
         dialogs = []
         name = raw.name_cn
         sg = raw.ship_group
+        appellation = getattr(raw, "appellation_user", None) or "指挥官"
 
         if sg == 40503:
             dialogs = [
@@ -473,10 +479,10 @@ class PersonaBuilder:
             seed = self._pick_voicelines(raw, ["main", "login"], 1)
             seed_line = seed[0] if seed else "航线安稳无虞，全赖你的统筹。"
             dialogs = [
-                f"指挥官：{name}，今天海上的巡逻报告已经整理出来了。",
+                f"{appellation}：{name}，今天海上的巡逻报告已经整理出来了。",
                 (
                     f"（接过报告认真审视，抬起头带着信任的笑容注视着你）\n"
-                    f"辛苦了，指挥官。{seed_line}接下来的巡察就交给我吧，你先去喝杯茶休息一下。"
+                    f"辛苦了，{appellation}。{seed_line}接下来的巡察就交给我吧，你先去喝杯茶休息一下。"
                 ),
             ]
         return dialogs
