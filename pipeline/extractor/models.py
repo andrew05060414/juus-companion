@@ -85,6 +85,7 @@ class CharacterRawMaterial:
     faction_cn: str
     ship_type: str = ""
     cv: str = ""
+    appellation_user: str = "指挥官"
     skin_ids: List[str] = field(default_factory=list)
     chat_topics: List[JUUsChatTopic] = field(default_factory=list)
     juus_posts: List[JUUsPost] = field(default_factory=list)
