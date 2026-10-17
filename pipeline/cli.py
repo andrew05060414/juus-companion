@@ -332,6 +332,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     fetch_parser.add_argument("--raw-dir", type=Path, default=DEFAULT_RAW_DIR, help="Raw data directory")
     fetch_parser.add_argument("--force", action="store_true", help="Force re-download")
 
+    # Reconcile command
+    reconcile_parser = subparsers.add_parser(
+        "reconcile", help="Run ship list & voice coverage reconciliation report"
+    )
+    reconcile_parser.add_argument(
+        "--raw-dir", type=Path, default=DEFAULT_RAW_DIR, help="Raw data directory"
+    )
+    reconcile_parser.add_argument(
+        "--output-dir", type=Path, default=DEFAULT_DATA_DIR, help="Output directory for reports"
+    )
+    reconcile_parser.add_argument(
+        "--re-export", action="store_true", help="Also run full re-export of all 881 character cards"
+    )
+
     args = parser.parse_args(argv)
 
     if args.command == "fetch":
@@ -339,6 +353,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         fetcher.fetch_all(force=args.force)
         print("Fetch completed.")
         return 0
+    elif args.command == "reconcile":
+        from pipeline.reconcile import run_reconciliation
+
+        raw_dir = getattr(args, "raw_dir", DEFAULT_RAW_DIR)
+        output_dir = getattr(args, "output_dir", DEFAULT_DATA_DIR)
+        re_export = getattr(args, "re_export", False)
+        return run_reconciliation(
+            raw_dir=raw_dir,
+            output_dir=output_dir,
+            re_export=re_export,
+        )
     elif args.command == "run" or args.command is None:
         raw_dir = getattr(args, "raw_dir", DEFAULT_RAW_DIR)
         output_dir = getattr(args, "output_dir", DEFAULT_OUTPUT_DIR)
