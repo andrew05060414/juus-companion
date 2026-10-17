@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict
 from typing import Dict, List, Optional
 
@@ -13,13 +14,49 @@ from pipeline.generator.lorebook import (
     assemble_three_layer_lorebook,
     build_l2_entries_for_character,
 )
+from server.src.juus_server.bubbles import DEFAULT_BUBBLE_POLICY, BubblePolicy, render_bubbles
 
 
 class PersonaBuilder:
     """Constructs SillyTavern V2 card data and AstrBot persona definition."""
 
-    def __init__(self, llm_client: Optional[LLMClient] = None):
+    def __init__(
+        self,
+        llm_client: Optional[LLMClient] = None,
+        *,
+        bubble_policy: BubblePolicy = DEFAULT_BUBBLE_POLICY,
+    ):
         self.llm = llm_client
+        self.bubble_policy = bubble_policy
+
+    def _bubble_instructions(self) -> str:
+        policy = self.bubble_policy
+        return (
+            f"你在手机上给对方发消息。每次回复 1~{policy.max_bubbles} 条气泡，"
+            f"每条尽量不超过 {policy.max_chars} 字，像真人打字。"
+            "话题自然地接住对方刚说的内容，一次最多问一个问题。"
+            "用自己的叫法和口癖直接说话，结尾停在一句话上。"
+            "每条消息用 <bubble>…</bubble> 包裹，标签外不写内容。"
+            "只写聊天正文，不写括号动作、神态旁白、姓名前缀或 Markdown。"
+            "语音或表情单独占一条气泡，只能使用本轮候选表中的 [语音: id] 或 [表情: id]；"
+            "没有候选时只发文字。"
+        )
+
+    def _bubble_reply(self, text: str) -> str:
+        return render_bubbles(text, policy=self.bubble_policy)
+
+    def _bubble_examples(self, text: str) -> str:
+        # Preserve user turns and <START>; convert each multiline assistant turn.
+        def convert(match: re.Match) -> str:
+            reply = self._bubble_reply(match[2])
+            return match[1].rstrip() + " " + reply if reply else ""
+
+        return re.sub(
+            r"(\{\{char\}\}:[ \t]*)(.*?)(?=\n\{\{(?:user|char)\}\}:|\n*<START>|\Z)",
+            convert,
+            text,
+            flags=re.DOTALL,
+        ).strip()
 
     # -- helpers for data-grounded generic templates (batch mode) --------------
 
@@ -100,7 +137,8 @@ class PersonaBuilder:
                 "system_prompt": system_prompt,
                 "post_history_instructions": (
                     f"时刻保持{name}契合官设与誓约满好感的性格特征与独特口吻。"
-                    "回复中自然融入神态动作描写，坚决以‘指挥官’或{{user}}称呼对方，绝不脱离角色。"
+                    "坚决以‘指挥官’或{{user}}称呼对方，绝不脱离角色。"
+                    + self._bubble_instructions()
                 ),
                 "alternate_greetings": alt_greetings,
                 "tags": ["碧蓝航线", faction, "陪伴", "已誓约", self._ship_type_cn(raw)],
@@ -123,7 +161,10 @@ class PersonaBuilder:
     def build_astrbot_persona(self, raw: CharacterRawMaterial) -> Dict:
         """Build AstrBot persona JSON conforming to upstream AstrBot specifications."""
         system_prompt = self._generate_system_prompt(raw)
-        begin_dialogs = self._generate_astrbot_dialogs(raw)
+        begin_dialogs = [
+            self._bubble_reply(text) if index % 2 else text
+            for index, text in enumerate(self._generate_astrbot_dialogs(raw))
+        ]
 
         return {
             "persona_id": raw.astrbot_id,
@@ -299,11 +340,14 @@ class PersonaBuilder:
             "3. 禁忌事项：",
             "   - 严禁脱离角色扮演，不得自称程序或破坏沉浸氛围。",
             "   - 始终以‘指挥官’称呼对方，保持碧蓝航线母港的世界观一致性。",
-            "   - 对话中自然带入细致的肢体神态描写（用括号注明），语言风格饱满真实。",
+            "   - " + self._bubble_instructions(),
         ])
         return "\n".join(lines)
 
     def _generate_first_mes(self, raw: CharacterRawMaterial) -> str:
+        return self._bubble_reply(self._generate_first_mes_text(raw))
+
+    def _generate_first_mes_text(self, raw: CharacterRawMaterial) -> str:
         sg = raw.ship_group
         name = raw.name_cn
 
@@ -363,6 +407,9 @@ class PersonaBuilder:
         )
 
     def _generate_alt_greetings(self, raw: CharacterRawMaterial) -> List[str]:
+        return [self._bubble_reply(text) for text in self._generate_alt_greeting_texts(raw)]
+
+    def _generate_alt_greeting_texts(self, raw: CharacterRawMaterial) -> List[str]:
         sg = raw.ship_group
         if sg == 40503:
             return [
@@ -419,7 +466,7 @@ class PersonaBuilder:
                 if vlines:
                     ex_lines = ["<START>", "{{user}}: （伏案工作，稍微伸了个懒腰）"]
                     for vl in vlines[:2]:
-                        ex_lines.append(f"{{char}}: （{vl}）")
+                        ex_lines.append("{{char}}: " + vl)
                     examples.append("\n".join(ex_lines))
                 else:
                     examples.append(
@@ -428,7 +475,7 @@ class PersonaBuilder:
                         "{{char}}: （把一杯热茶推到你面前）工作再要紧也要顾惜身体。把手头剩下的分我一半，一起批阅吧。"
                     )
 
-        return "\n\n".join(examples)
+        return self._bubble_examples("\n\n".join(examples))
 
     def _generate_astrbot_dialogs(self, raw: CharacterRawMaterial) -> List[str]:
         """Generate AstrBot begin_dialogs format (list of strings, alternating user and assistant, even count)."""
