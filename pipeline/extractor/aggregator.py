@@ -73,6 +73,41 @@ class RawDataAggregator:
         self._loaded = True
         logger.info("Raw data tables loaded successfully.")
 
+    @staticmethod
+    def is_skin_match(skin_id: str | int, ship_group: str | int) -> bool:
+        """Exact skin matching per Issue #27: skin_id[:-1] == ship_group."""
+        return str(skin_id)[:-1] == str(ship_group)
+
+    @staticmethod
+    def is_skin_match_legacy(skin_id: str | int, ship_group: str | int) -> bool:
+        """Legacy prefix skin matching: skin_id.startswith(ship_group)."""
+        return str(skin_id).startswith(str(ship_group))
+
+    def compare_skin_matching(
+        self, ship_groups: Optional[List[int]] = None
+    ) -> List[Dict]:
+        """Compare legacy prefix matching vs exact matching and return differences."""
+        self.load_tables()
+        groups = ship_groups or list(BATCH_1_SHIPS.keys())
+        diffs = []
+        for g in groups:
+            sg_str = str(g)
+            for table_name, table in [
+                ("cn_words", self._cn_words),
+                ("en_words", self._en_words),
+                ("cn_words_extra", self._cn_words_extra),
+            ]:
+                prefix_matches = {k for k in table.keys() if self.is_skin_match_legacy(k, sg_str)}
+                exact_matches = {k for k in table.keys() if self.is_skin_match(k, sg_str)}
+                if prefix_matches != exact_matches:
+                    diffs.append({
+                        "ship_group": g,
+                        "table": table_name,
+                        "prefix_only": sorted(list(prefix_matches - exact_matches)),
+                        "exact_only": sorted(list(exact_matches - prefix_matches)),
+                    })
+        return diffs
+
     def _find_ship_stat(self, ship_group: int, fallback_en: bool = False) -> Optional[dict]:
         """Find ship_data_statistics entry by ship_group (id // 10 == ship_group)."""
         stats_tables = [self._cn_stats, self._en_stats] if fallback_en else [self._cn_stats]
@@ -185,11 +220,15 @@ class RawDataAggregator:
         sg_str = str(ship_group)
         is_fallback = target_cfg.fallback_en if target_cfg else False
 
-        active_table = self._cn_words if (not is_fallback and any(k.startswith(sg_str) for k in self._cn_words)) else self._en_words
+        active_table = (
+            self._cn_words
+            if (not is_fallback and any(self.is_skin_match(k, sg_str) for k in self._cn_words))
+            else self._en_words
+        )
 
         # Skin words
         for skin_id, skin_data in active_table.items():
-            if not isinstance(skin_data, dict) or not skin_id.startswith(sg_str):
+            if not isinstance(skin_data, dict) or not self.is_skin_match(skin_id, sg_str):
                 continue
 
             voice_links = self._voicelinks.get(skin_id, {})
@@ -216,7 +255,7 @@ class RawDataAggregator:
 
         # Extra skin words (condition 1100 post-oath / EX lines)
         for skin_id, extra_data in self._cn_words_extra.items():
-            if not isinstance(extra_data, dict) or not skin_id.startswith(sg_str):
+            if not isinstance(extra_data, dict) or not self.is_skin_match(skin_id, sg_str):
                 continue
             voice_links = self._voicelinks.get(skin_id, {})
             for vk, raw_val in extra_data.items():
@@ -290,8 +329,8 @@ class RawDataAggregator:
         skin_ids = sorted(
             list(
                 set(
-                    [k for k in self._cn_words.keys() if k.startswith(sg_str)]
-                    + [k for k in self._en_words.keys() if k.startswith(sg_str)]
+                    [k for k in self._cn_words.keys() if self.is_skin_match(k, sg_str)]
+                    + [k for k in self._en_words.keys() if self.is_skin_match(k, sg_str)]
                 )
             )
         )

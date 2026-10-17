@@ -137,3 +137,39 @@ def test_variant_merging():
     assert 88889 in merged.merged_groups
     assert any("觉醒型" in n for n in merged.notes)
 
+
+def test_exact_skin_matching_behavior():
+    """Exact skin matching skin_id[:-1] == group vs legacy prefix (Issue #27)."""
+    # Exact match: group 88888, skin 888880
+    assert RawDataAggregator.is_skin_match("888880", "88888") is True
+    assert RawDataAggregator.is_skin_match("888881", "88888") is True
+    # Prefix collision scenario: group 888 vs skin 888880
+    # Legacy prefix matching returns True (false positive collision!)
+    assert RawDataAggregator.is_skin_match_legacy("888880", "888") is True
+    # Exact matching prevents prefix collision
+    assert RawDataAggregator.is_skin_match("888880", "888") is False
+
+
+def test_compare_skin_matching_detects_collision(tmp_path: Path):
+    """compare_skin_matching detects discrepancies when prefix-collision skins exist."""
+    cn_sharecfg = tmp_path / "CN" / "ShareCfg"
+    cn_sharecfgdata = tmp_path / "CN" / "sharecfgdata"
+    cn_sharecfg.mkdir(parents=True, exist_ok=True)
+    cn_sharecfgdata.mkdir(parents=True, exist_ok=True)
+
+    # Fictional table with group 888 and colliding skin 88810
+    with open(cn_sharecfgdata / "ship_skin_words.json", "w", encoding="utf-8") as f:
+        json.dump({"88810": {"login": "test"}}, f)
+    with open(cn_sharecfgdata / "ship_data_statistics.json", "w", encoding="utf-8") as f:
+        json.dump({}, f)
+    with open(cn_sharecfg / "ship_skin_words_extra.json", "w", encoding="utf-8") as f:
+        json.dump({}, f)
+
+    aggregator = RawDataAggregator(raw_dir=tmp_path)
+    # Check group 888: 88810 has len 5, 88810[:-1] is 8881 != 888
+    diffs = aggregator.compare_skin_matching(ship_groups=[888])
+    assert len(diffs) == 1
+    assert diffs[0]["ship_group"] == 888
+    assert "88810" in diffs[0]["prefix_only"]
+    assert diffs[0]["exact_only"] == []
+
