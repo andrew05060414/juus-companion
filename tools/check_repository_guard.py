@@ -10,6 +10,7 @@ from pathlib import Path
 
 MAX_JSON_BYTES = 1 * 1024 * 1024
 LOCAL_DATA_PREFIX = "data"
+FORBIDDEN_DIR_PREFIXES = ("deploy/secrets", "private-data")
 LARGE_JSON_ALLOWLIST = ("data", "tests/fixtures")
 
 AUDIO_SUFFIXES = frozenset({".aac", ".flac", ".m4a", ".mp3", ".ogg", ".opus", ".wav"})
@@ -73,6 +74,15 @@ def scan_paths(root: Path, relative_paths: Iterable[Path]) -> list[Violation]:
             continue
 
         path = _normalise(safe_relative)
+        if any(_under(path, prefix) for prefix in FORBIDDEN_DIR_PREFIXES):
+            violations.append(
+                Violation(
+                    path,
+                    "path is in a forbidden private/secret directory (must be gitignored and not committed)",
+                )
+            )
+            continue
+
         if _under(path, LOCAL_DATA_PREFIX) or not candidate.is_file():
             continue
 
