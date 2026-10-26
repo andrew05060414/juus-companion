@@ -1,7 +1,6 @@
-version: "3.8"
-
 services:
   juus-brain:
+    # 当前为部署模板；正式镜像将在 M1 独立服务完成后发布
     image: ghcr.io/andrew05060414/juus-brain:latest
     container_name: juus-brain
     restart: unless-stopped

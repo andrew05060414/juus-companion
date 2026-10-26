@@ -38,6 +38,7 @@ LIVE2D_SUFFIXES = frozenset(
 )
 MAX_JSON_BYTES = 1 * 1024 * 1024
 LARGE_JSON_ALLOWLIST = ("data", "tests/fixtures")
+FORBIDDEN_DIR_PREFIXES = ("deploy/secrets", "private-data")
 
 # Secret regex patterns
 SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -165,7 +166,10 @@ def _is_safe_text(match_text: str) -> bool:
 
 
 def check_file_path(path_str: str) -> str | None:
-    path_lower = path_str.lower().replace("\\", "/")
+    path_lower = path_str.lower().replace(chr(92), "/").removeprefix("./")
+    for prefix in FORBIDDEN_DIR_PREFIXES:
+        if path_lower == prefix or path_lower.startswith(f"{prefix}/"):
+            return "path is in a forbidden private/secret directory (must be gitignored and not committed)"
     if path_lower.startswith("data/") or path_lower == "data":
         return None
 
@@ -188,7 +192,7 @@ def audit_content_line(line: str, source_desc: str, commit_sha: str = "") -> lis
     for name, pattern in SECRET_PATTERNS:
         for match in pattern.finditer(line):
             matched_str = match.group(0)
-            if not _is_safe_text(matched_str) and not _is_safe_text(line):
+            if not _is_safe_text(matched_str):
                 masked = matched_str[:4] + "***" if len(matched_str) > 8 else "***"
                 violations.append(
                     AuditViolation(
@@ -203,7 +207,7 @@ def audit_content_line(line: str, source_desc: str, commit_sha: str = "") -> lis
     for name, pattern in SENSITIVE_HOST_PATTERNS:
         for match in pattern.finditer(line):
             matched_str = match.group(0)
-            if not _is_safe_text(matched_str) and not _is_safe_text(line):
+            if not _is_safe_text(matched_str):
                 violations.append(
                     AuditViolation(
                         category="Network / Path Leak",
@@ -217,26 +221,35 @@ def audit_content_line(line: str, source_desc: str, commit_sha: str = "") -> lis
 
 
 def audit_git_history(root: Path) -> tuple[int, int, list[AuditViolation]]:
-    """Scan all git commits for forbidden files, secrets, and leaks."""
+    """Scan all git commits across all reachable refs (git rev-list --all) for forbidden files, secrets, and leaks."""
     violations: list[AuditViolation] = []
     lines_scanned = 0
 
     log_cmd = subprocess.run(
-        ["git", "-C", str(root), "log", "--reverse", "--format=%H %s"],
+        ["git", "-C", str(root), "rev-list", "--all"],
         capture_output=True,
         text=True,
         check=True,
     )
-    commit_lines = [line.strip() for line in log_cmd.stdout.splitlines() if line.strip()]
-    total_commits = len(commit_lines)
+    commit_shas = [line.strip() for line in log_cmd.stdout.splitlines() if line.strip()]
+    total_commits = len(commit_shas)
 
-    for entry in commit_lines:
-        sha, _, subject = entry.partition(" ")
+    for sha in commit_shas:
         short_sha = sha[:8]
 
-        # 1. Check tree/filenames added or modified in this commit
+        # 1. Check tree/filenames added or modified in this commit (with --root for root commit)
         diff_tree = subprocess.run(
-            ["git", "-C", str(root), "diff-tree", "-r", "--no-commit-id", "--name-status", sha],
+            [
+                "git",
+                "-C",
+                str(root),
+                "diff-tree",
+                "-r",
+                "--root",
+                "--no-commit-id",
+                "--name-status",
+                sha,
+            ],
             capture_output=True,
             text=True,
             check=True,
@@ -257,9 +270,9 @@ def audit_git_history(root: Path) -> tuple[int, int, list[AuditViolation]]:
                             )
                         )
 
-        # 2. Check diff text for secrets and leaks
+        # 2. Check diff text for secrets and leaks (with --root for root commit)
         diff_show = subprocess.run(
-            ["git", "-C", str(root), "show", "--format=", "-p", sha],
+            ["git", "-C", str(root), "diff-tree", "-p", "--root", "--no-commit-id", sha],
             capture_output=True,
             text=True,
             check=True,

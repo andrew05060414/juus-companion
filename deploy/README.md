@@ -95,13 +95,13 @@ docker compose -f docker-compose.example.yml ps
 docker compose -f docker-compose.example.yml logs -f juus-brain
 ```
 
-### 步骤 4：健康检查与服务验证
+### 步骤 4：服务说明与健康检查模板
 
-在大脑服务启动后，验证健康状态：
+> **注意**：当前 `deploy/` 下的 Docker Compose 与环境变量文件仅作为自部署架构设计与模板样例（当前大脑独立服务镜像与 `/health` 端点仍在建设中，将在 M1 独立大脑服务实现后提供正式构建）。
 
+服务就绪后的预期检查命令：
 ```sh
 curl -s http://127.0.0.1:8000/health
-# 预期返回: {"status": "ok", "service": "juus-brain"}
 ```
 
 ---
@@ -112,7 +112,7 @@ curl -s http://127.0.0.1:8000/health
 
 1. **FCM（Firebase Cloud Messaging，推荐主通道）**：
    - 适用于带有 Google 服务的海外或国际版 Android 设备。
-   - 前往 Firebase 控制台下载 service-account.json，放置在宿主机安全目录（如 deploy/secrets/fcm.json，已被 gitignore 忽略）。
+   - 前往 Firebase 控制台下载 service-account.json，放置在宿主机安全目录（如 deploy/secrets/fcm.json，该目录已被 .gitignore 忽略）。
    - 在 .env 中配置 FCM_CREDENTIALS_FILE=/app/secrets/fcm.json。
 2. **ntfy（轻量自建，推荐国内或无 GMS 兜底）**：
    - docker-compose.example.yml 中已内置 juus-ntfy 容器。

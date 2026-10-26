@@ -79,6 +79,21 @@ class TestAuditRelease(unittest.TestCase):
         self.assertGreaterEqual(report.total_commits, 1)
         self.assertEqual(len(report.violations), 0)
 
+    def test_check_file_path_forbidden_directories(self) -> None:
+        self.assertIsNotNone(check_file_path("deploy/secrets/fcm.json"))
+        self.assertIsNotNone(check_file_path("private-data/ratings.json"))
+
+    def test_audit_content_line_does_not_whitelist_entire_line(self) -> None:
+        fake_key = "sk-" + "abcdefghijklmnopqrstuvwxyz123456"
+        line_with_example = f"API_KEY = '{fake_key}'  # see example config"
+        violations = audit_content_line(line_with_example, "test.py:1")
+        self.assertTrue(any("OpenAI API Key" in v.detail for v in violations))
+
+        fake_ip = "192.168." + "1.150"
+        line_with_placeholder = f"HOST={fake_ip}  # placeholder host"
+        violations_ip = audit_content_line(line_with_placeholder, "test.py:2")
+        self.assertTrue(any("Private IPv4 Address" in v.detail for v in violations_ip))
+
 
 if __name__ == "__main__":
     unittest.main()

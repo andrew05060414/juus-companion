@@ -1,5 +1,7 @@
 # Local data: game assets, generated character cards, personal data — never commit (see docs/DATA_POLICY.md)
 data/
+private-data/
+deploy/secrets/
 cache/
 *.sqlite
 *.sqlite3

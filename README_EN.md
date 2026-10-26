@@ -44,7 +44,7 @@ An AI-powered Azur Lane fan companion that **actively messages you**: each shipg
 |---|---|:---:|:---:|
 | `server/` | Juus Brain service: persona registry, sessions, director, proactive scheduler, delivery ledger | AGPL-3.0 | Core contracts & API draft complete |
 | `pipeline/` | Data pipeline: extracts unpacked game configs and compiles SillyTavern / AstrBot cards locally | AGPL-3.0 | v1 pipeline implemented |
-| `deploy/` | Self-hosting templates: Docker Compose, environment templates, ntfy push server | AGPL-3.0 | Production-ready |
+| `deploy/` | Self-hosting templates: Docker Compose, environment templates, ntfy push server | AGPL-3.0 | Template ready |
 | `adapters/` | External adapters: AstrBot integration, Chronicle personal memory connector | AGPL-3.0 | Planned |
 | `app-android/` | Android client (forked from [oneroomlife/blyy](https://github.com/oneroomlife/blyy)) | GPL-3.0 | Source audited, awaiting integration |
 | `pwa/` | Web / iOS PWA client | AGPL-3.0 | Planned |
