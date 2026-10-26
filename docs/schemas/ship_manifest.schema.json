@@ -1,0 +1,116 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ShipManifest",
+  "description": "Schema for Juus Companion ship manifest reconciliation export",
+  "type": "object",
+  "required": [
+    "version",
+    "generated_at",
+    "total_ships",
+    "cn_primary_count",
+    "en_fallback_count",
+    "reconciliation_explanations",
+    "filtering_rules",
+    "type_mapping_summary",
+    "ships"
+  ],
+  "properties": {
+    "version": {
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "total_ships": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "cn_primary_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "en_fallback_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "reconciliation_explanations": {
+      "type": "object",
+      "required": [
+        "count_881",
+        "count_841",
+        "count_632"
+      ],
+      "properties": {
+        "count_881": {
+          "type": "string"
+        },
+        "count_841": {
+          "type": "string"
+        },
+        "count_632": {
+          "type": "string"
+        }
+      }
+    },
+    "filtering_rules": {
+      "type": "object"
+    },
+    "type_mapping_summary": {
+      "type": "object"
+    },
+    "ships": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ship_group",
+          "id",
+          "name_cn",
+          "name_en",
+          "astrbot_id",
+          "faction_key",
+          "faction_cn",
+          "type_code",
+          "type_cn",
+          "fallback_en"
+        ],
+        "properties": {
+          "ship_group": {
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name_cn": {
+            "type": "string"
+          },
+          "name_en": {
+            "type": "string"
+          },
+          "astrbot_id": {
+            "type": "string"
+          },
+          "faction_key": {
+            "type": "string"
+          },
+          "faction_cn": {
+            "type": "string"
+          },
+          "type_code": {
+            "type": "integer"
+          },
+          "type_cn": {
+            "type": "string"
+          },
+          "fallback_en": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

@@ -197,6 +197,42 @@ def test_appellation_rule_still_fails_master_without_canonical_source():
     assert res.severity == "error"
 
 
+def test_ship_type_map_complete_coverage():
+    """Verify numeric ship types 10, 13, 20, 21 are cleanly mapped (Issue #27)."""
+    from pipeline.config import SHIP_TYPE_MAP, ship_type_cn
+
+    assert SHIP_TYPE_MAP[10] == "航空战列舰"
+    assert SHIP_TYPE_MAP[13] == "浅水重炮舰"
+    assert SHIP_TYPE_MAP[20] == "导弹驱逐舰"
+    assert SHIP_TYPE_MAP[21] == "导弹驱逐舰"
+
+    assert ship_type_cn(10) == "航空战列舰"
+    assert ship_type_cn(13) == "浅水重炮舰"
+    assert ship_type_cn(20) == "导弹驱逐舰"
+    assert ship_type_cn(21) == "导弹驱逐舰"
+    # Unmapped code falls back to '舰娘'
+    assert ship_type_cn(9999) == "舰娘"
+
+
+def test_build_manifest_data_fictional(tmp_path: Path):
+    """Verify build_manifest_data produces required explanations and schema fields."""
+    from pipeline.reconcile import build_manifest_data
+
+    cn, en = _fictional_tables(tmp_path)
+    manifest = build_manifest_data(tmp_path)
+
+    assert manifest.total_ships == 3
+    assert manifest.cn_primary_count == 2
+    assert manifest.en_fallback_count == 1
+    # 881 / 841 / 632 explanations must be present
+    assert "881" in manifest.reconciliation_explanations.count_881
+    assert "841" in manifest.reconciliation_explanations.count_841
+    assert "632" in manifest.reconciliation_explanations.count_632
+    # Type summary must contain mapped type_cn
+    assert "2" in manifest.type_mapping_summary
+    assert manifest.type_mapping_summary["2"]["type_cn"] == "轻巡洋舰"
+
+
 def test_appellation_rule_still_fails_player_appellation():
     """玩家/用户 remain hard errors even with canonical 主人."""
     from pipeline.validator.rules import AppellationRule

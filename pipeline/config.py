@@ -40,6 +40,7 @@ class ShipTargetConfig:
     astrbot_id: str
     faction_key: str
     faction_cn: str
+    ship_type: int = 0
     merged_groups: List[int] = field(default_factory=list)
     fallback_en: bool = False
     notes: str = ""
@@ -55,6 +56,7 @@ BATCH_1_SHIPS: Dict[int, ShipTargetConfig] = {
         astrbot_id="huteng",
         faction_key="iron_blood",
         faction_cn="铁血",
+        ship_type=5,
         notes="3 JUUs chat topics, 5 skin voice sets, vinyl music & health care demeanor",
     ),
     49902: ShipTargetConfig(
@@ -65,6 +67,7 @@ BATCH_1_SHIPS: Dict[int, ShipTargetConfig] = {
         astrbot_id="dadi",
         faction_key="iron_blood",
         faction_cn="铁血",
+        ship_type=5,
         notes="0 JUUs chat topics, 6 skin voice sets, maternal majesty & grand symphony demeanor",
     ),
     30510: ShipTargetConfig(
@@ -75,6 +78,7 @@ BATCH_1_SHIPS: Dict[int, ShipTargetConfig] = {
         astrbot_id="musashi",
         faction_key="sakura_empire",
         faction_cn="重樱",
+        ship_type=5,
         notes="0 JUUs chat topics, 4 skin voice sets, thunderous protectiveness & genmaicha demeanor",
     ),
     10702: ShipTargetConfig(
@@ -85,6 +89,7 @@ BATCH_1_SHIPS: Dict[int, ShipTargetConfig] = {
         astrbot_id="lexington",
         faction_key="eagle_union",
         faction_cn="白鹰",
+        ship_type=7,
         notes="6 JUUs chat topics, idol & elder sister demeanor",
     ),
     10705: ShipTargetConfig(
@@ -95,6 +100,7 @@ BATCH_1_SHIPS: Dict[int, ShipTargetConfig] = {
         astrbot_id="yorktown",
         faction_key="eagle_union",
         faction_cn="白鹰",
+        ship_type=7,
         merged_groups=[10710],  # Yorktown II (10710) is merged into Yorktown (10705)
         notes="Merged with Yorktown II (10710) as awakened progression; Yorktown META excluded",
     ),
@@ -106,6 +112,7 @@ BATCH_1_SHIPS: Dict[int, ShipTargetConfig] = {
         astrbot_id="lion",
         faction_key="royal_navy",
         faction_cn="皇家",
+        ship_type=5,
         notes="3 JUUs chat topics, regal & seductive royalty demeanor",
     ),
     970201: ShipTargetConfig(
@@ -116,6 +123,7 @@ BATCH_1_SHIPS: Dict[int, ShipTargetConfig] = {
         astrbot_id="helena_meta",
         faction_key="meta_faction",
         faction_cn="META",
+        ship_type=2,
         notes="META independent persona, SG radar & fierce protective obsession",
     ),
     20238: ShipTargetConfig(
@@ -126,6 +134,7 @@ BATCH_1_SHIPS: Dict[int, ShipTargetConfig] = {
         astrbot_id="tiger",
         faction_key="royal_navy",
         faction_cn="皇家",
+        ship_type=2,
         fallback_en=True,
         notes="2026 new ship, missing in CN AzurLaneData, fallback to EN data with [pending_cn_supplement]",
     ),
@@ -173,10 +182,19 @@ SHIP_TYPE_MAP: Dict[int, str] = {
     6: "轻型航空母舰",
     7: "航空母舰",
     8: "潜艇",
+    9: "航空巡洋舰",
+    10: "航空战列舰",
+    11: "重雷装巡洋舰",
     12: "维修舰",
+    13: "浅水重炮舰",
     17: "潜水母舰",
     18: "大型巡洋舰",
     19: "补给舰",
+    20: "导弹驱逐舰",
+    21: "导弹驱逐舰",
+    22: "风帆战舰",
+    23: "风帆战舰",
+    24: "风帆战舰",
 }
 
 # Playable ship nationalities: 9 factions + META(97).
@@ -238,6 +256,7 @@ def build_ship_registry(
         if slug in seen_slugs:  # name collision (e.g. retrofit variants) -> suffix group id
             slug = f"{slug}_{group}"
         seen_slugs[slug] = group
+        ship_type = int(stat.get("type", 0))
         notes = ""
         if fallback_en:
             notes = "CN 数据缺失，已从 Fernando2603/AzurLaneData 补充 [pending_cn_supplement]"
@@ -249,6 +268,7 @@ def build_ship_registry(
             astrbot_id=slug,
             faction_key=nat_info["key"],
             faction_cn=nat_info["name"],
+            ship_type=ship_type,
             fallback_en=fallback_en,
             notes=notes,
         )
