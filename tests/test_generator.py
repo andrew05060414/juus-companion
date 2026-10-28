@@ -61,6 +61,8 @@ def test_build_sillytavern_v2():
     assert card["spec_version"] == "2.0"
     data = card["data"]
     assert data["name"] == "极光·守护者"
+    assert "{{user}}" in data["scenario"]
+    assert "{user}" not in data["scenario"].replace("{{user}}", "")
     assert "指挥官" in data["system_prompt"]
     assert "character_book" in data
     assert data["character_book"]["entries"]
@@ -83,4 +85,24 @@ def test_build_astrbot_persona():
     assert len(astr["begin_dialogs"]) % 2 == 0
     assert isinstance(astr["begin_dialogs"][0], str)
     assert astr["tools"] is None
+
+
+def test_build_card_scenario_user_macro_and_custom_appellation():
+    raw = create_fictional_character()
+    raw.appellation_user = "测试称呼"
+    builder = PersonaBuilder()
+    card = builder.build_sillytavern_v2(raw)
+    data = card["data"]
+
+    assert "{{user}}" in data["scenario"]
+    assert "{user}" not in data["scenario"].replace("{{user}}", "")
+    assert "测试称呼" in data["scenario"]
+
+    sys_prompt = data["system_prompt"]
+    post_history = data["post_history_instructions"]
+
+    assert "始终以‘指挥官’称呼" not in sys_prompt
+    assert "坚决以‘指挥官’" not in post_history
+    assert "始终以‘测试称呼’称呼" in sys_prompt
+    assert "坚决以‘测试称呼’或{{user}}称呼对方" in post_history
 
