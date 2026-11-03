@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SkinMatchingDiffReport",
+  "description": "Schema for skin matching comparison (exact vs legacy prefix)",
+  "type": "object",
+  "required": [
+    "generated_at",
+    "matching_rules",
+    "total_ships_checked",
+    "total_differences_count",
+    "differences",
+    "conclusion"
+  ],
+  "properties": {
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "matching_rules": {
+      "type": "object",
+      "required": [
+        "legacy",
+        "exact"
+      ],
+      "properties": {
+        "legacy": {
+          "type": "string"
+        },
+        "exact": {
+          "type": "string"
+        }
+      }
+    },
+    "total_ships_checked": {
+      "type": "integer"
+    },
+    "total_differences_count": {
+      "type": "integer"
+    },
+    "differences": {
+      "type": "array"
+    },
+    "conclusion": {
+      "type": "string"
+    }
+  }
+}
