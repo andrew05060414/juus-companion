@@ -224,10 +224,23 @@ def test_build_manifest_data_fictional(tmp_path: Path):
     assert manifest.total_ships == 3
     assert manifest.cn_primary_count == 2
     assert manifest.en_fallback_count == 1
-    # 881 / 841 / 632 explanations must be present
-    assert "881" in manifest.reconciliation_explanations.count_881
-    assert "841" in manifest.reconciliation_explanations.count_841
+    # Explanations must be computed from this fixture's real numbers, not
+    # hardcoded 881/841/632 literals (Issue #27 / PR #32 F-1 & F-2): each
+    # explanation must cite the actual total/category counts it describes.
+    assert str(manifest.total_ships) in manifest.reconciliation_explanations.count_881
+    assert str(manifest.playable_count) in manifest.reconciliation_explanations.count_881
+    assert (
+        manifest.playable_count + manifest.retrofit_form_count + manifest.special_90xxx_count
+        == manifest.total_ships
+    )
+    assert str(manifest.cn_primary_count) in manifest.reconciliation_explanations.count_841
+    # count_632 keeps citing the PRD's historical "约 632" figure as a label,
+    # alongside the real, reproducible JUUs-activity union computed here.
     assert "632" in manifest.reconciliation_explanations.count_632
+    assert (
+        str(manifest.juus_activity_stats["union_count"])
+        in manifest.reconciliation_explanations.count_632
+    )
     # Type summary must contain mapped type_cn
     assert "2" in manifest.type_mapping_summary
     assert manifest.type_mapping_summary["2"]["type_cn"] == "轻巡洋舰"

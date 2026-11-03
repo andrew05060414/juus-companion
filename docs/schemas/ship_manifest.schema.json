@@ -34,6 +34,25 @@
       "type": "integer",
       "minimum": 0
     },
+    "playable_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Ships categorized as independent playable characters (excludes retrofit_form and special_90xxx)."
+    },
+    "retrofit_form_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Ships categorized as retrofit-form placeholder groups (.改/·改/Retrofit)."
+    },
+    "special_90xxx_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Ships categorized as 90000-99999 special placeholder groups (story NPC / drill / boss mirrors)."
+    },
+    "juus_activity_stats": {
+      "type": "object",
+      "description": "Real computation behind the PRD's old '约632' figure: ship_group union across the three JUUs activity tables."
+    },
     "reconciliation_explanations": {
       "type": "object",
       "required": [
@@ -73,7 +92,8 @@
           "faction_cn",
           "type_code",
           "type_cn",
-          "fallback_en"
+          "fallback_en",
+          "category"
         ],
         "properties": {
           "ship_group": {
@@ -105,6 +125,10 @@
           },
           "fallback_en": {
             "type": "boolean"
+          },
+          "category": {
+            "type": "string",
+            "enum": ["playable", "retrofit_form", "special_90xxx"]
           },
           "notes": {
             "type": "string"
