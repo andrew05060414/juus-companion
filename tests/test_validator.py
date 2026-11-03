@@ -179,3 +179,43 @@ def test_astrbot_schema_rule_allows_empty_tools_list():
     res = rule.check(data)
     assert res.passed is True
 
+
+def test_appellation_rule_with_custom_appellation():
+    rule = AppellationRule()
+    raw = make_sample_raw()
+    raw.appellation_user = "测试称呼"
+
+    # Pass: card uses custom appellation
+    card_pass = make_sample_card(
+        system_prompt="你正在扮演测试舰娘。面对测试称呼时要温柔体贴。始终以‘测试称呼’称呼对方。",
+        mes_example="{{user}}: 你好\n{{char}}: 测试称呼，欢迎回来。",
+    )
+    card_pass["data"]["first_mes"] = "测试称呼，今天辛苦了。"
+    card_pass["data"]["post_history_instructions"] = "坚决以‘测试称呼’或{{user}}称呼对方"
+    res_pass = rule.check(card_pass, raw)
+    assert res_pass.passed is True
+
+    # Fail: card hardcodes 指挥官
+    card_hardcoded = make_sample_card(
+        system_prompt="你正在扮演测试舰娘。面对指挥官时要温柔体贴。始终以‘指挥官’称呼对方。",
+        mes_example="{{user}}: 你好\n{{char}}: 指挥官，欢迎回来。",
+    )
+    card_hardcoded["data"]["first_mes"] = "指挥官，今天辛苦了。"
+    card_hardcoded["data"]["post_history_instructions"] = "坚决以‘指挥官’或{{user}}称呼对方"
+    res_fail = rule.check(card_hardcoded, raw)
+    assert res_fail.passed is False
+    assert "未检测到对‘测试称呼’的标准称呼" in res_fail.message or "写死‘指挥官’称呼" in res_fail.message
+
+
+def test_appellation_rule_with_generated_card():
+    from pipeline.generator.builder import PersonaBuilder
+
+    raw = make_sample_raw()
+    raw.appellation_user = "测试称呼"
+    builder = PersonaBuilder()
+    card = builder.build_sillytavern_v2(raw)
+
+    rule = AppellationRule()
+    res = rule.check(card, raw)
+    assert res.passed is True
+
