@@ -255,3 +255,50 @@ def test_appellation_rule_still_fails_player_appellation():
     res = AppellationRule().check(card, raw)
     assert res.passed is False
     assert res.severity == "error"
+
+
+def test_classify_ship_category_f5_vichya_and_fictional():
+    """Verify F-5: 90xxx Vichya ships with lines are playable, mirrors are special."""
+    from pipeline.reconcile import classify_ship_category
+
+    # 1. Real Vichya ship with voicelines -> playable
+    assert classify_ship_category(
+        ship_group=90501, name_cn="让·巴尔", name_en="Jean Bart",
+        faction_key="vichya_dominion", has_voicelines=True,
+    ) == "playable"
+
+    # 2. Vichya NPC / simulation mirror without voicelines (90080) -> special_90xxx
+    assert classify_ship_category(
+        ship_group=90080, name_cn="莫加多尔", name_en="Mogador",
+        faction_key="vichya_dominion", has_voicelines=False,
+    ) == "special_90xxx"
+
+    # 3. Non-Vichya 90xxx simulation / NPC (90001 Bismarck mirror) -> special_90xxx
+    assert classify_ship_category(
+        ship_group=90001, name_cn="俾斯麦", name_en="Bismarck",
+        faction_key="iron_blood", has_voicelines=False,
+    ) == "special_90xxx"
+
+    # 4. Non-Vichya 90xxx with voicelines (90024 Laffey mirror) -> special_90xxx
+    assert classify_ship_category(
+        ship_group=90024, name_cn="拉菲", name_en="Laffey",
+        faction_key="eagle_union", has_voicelines=True,
+    ) == "special_90xxx"
+
+    # 5. Fictional 90xxx Vichya ship in fictional test fixture -> playable
+    assert classify_ship_category(
+        ship_group=90999, name_cn="虚构维希舰", name_en="Fictional Vichya",
+        faction_key="vichya_dominion", has_voicelines=True,
+    ) == "playable"
+
+    # 6. Retrofit form is always retrofit_form
+    assert classify_ship_category(
+        ship_group=10199, name_cn="埃尔德里奇.改", name_en="Eldridge (Retrofit)",
+        faction_key="eagle_union", has_voicelines=False,
+    ) == "retrofit_form"
+
+    # 7. Normal playable ship
+    assert classify_ship_category(
+        ship_group=10117, name_cn="拉菲", name_en="Laffey",
+        faction_key="eagle_union", has_voicelines=True,
+    ) == "playable"

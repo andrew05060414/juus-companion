@@ -28,6 +28,40 @@ logger = logging.getLogger(__name__)
 SPECIAL_90XXX_RANGE = range(90000, 100000)
 
 
+def classify_ship_category(
+    ship_group: int,
+    name_cn: str,
+    name_en: str,
+    faction_key: str = "",
+    has_voicelines: Optional[bool] = None,
+) -> str:
+    """Classify a ship group into 'playable', 'retrofit_form', or 'special_90xxx'.
+
+    - retrofit_form: name contains '.改', '·改', or 'Retrofit' (stat placeholder;
+      voicelines belong to the original ship group).
+    - special_90xxx: 90000..99999 special placeholder groups (NPC, drill,
+      simulation, boss mirrors).
+      EXCEPTION (F-5): Vichya Dominion (nationality 9 / faction_key 'vichya_dominion')
+      uses 90101-90701, 99901, 99902 for 24 real playable ships with full independent
+      voicelines (propose, feeling5, etc.). These 24 Vichya ships are classified
+      as 'playable'. Non-playable 90xxx (such as 90080 Mogador NPC mirror or other
+      mirror groups without independent voicelines) remain 'special_90xxx'.
+    - playable: everything else (independent playable characters).
+    """
+    if _is_retrofit_form(name_cn, name_en):
+        return "retrofit_form"
+
+    if 90000 <= ship_group < 100000:
+        is_vichya = faction_key in ("vichya_dominion", "9")
+        if is_vichya:
+            if has_voicelines is not None:
+                return "playable" if has_voicelines else "special_90xxx"
+            return "playable" if ship_group != 90080 else "special_90xxx"
+        return "special_90xxx"
+
+    return "playable"
+
+
 def _is_retrofit_form(name_cn: str, name_en: str) -> bool:
     """True if this registry entry is a retrofit-form placeholder group.
 
@@ -60,7 +94,7 @@ def _read_raw_json(p: Path) -> dict:
     return {}
 
 
-def compute_juus_activity_stats(raw_dir: Path, registry: Dict[int, ShipTargetConfig]) -> Dict[str, int]:
+def compute_juus_activity_stats(raw_dir: Path, registry: Dict[int, ShipTargetConfig]) -> Dict[str, Any]:
     """Compute how many ship_groups actually appear in the three JUUs activity
     tables (chat group / template / NPC template), and how many of those land
     inside the current confirmed registry.
@@ -88,6 +122,50 @@ def compute_juus_activity_stats(raw_dir: Path, registry: Dict[int, ShipTargetCon
     in_registry = union & registry_groups
     out_of_registry = union - registry_groups
 
+    # Dynamically compute nationality breakdown of out-of-registry groups (Issue #27 / PR #32 F-6)
+    cn_stats = _read_raw_json(raw_dir / "CN/sharecfgdata/ship_data_statistics.json")
+    en_stats = _read_raw_json(raw_dir / "EN/sharecfgdata/ship_data_statistics.json")
+
+    group_nats: Dict[int, int] = {}
+    for table in [cn_stats, en_stats]:
+        for v in table.values():
+            if isinstance(v, dict) and "id" in v and "nationality" in v:
+                try:
+                    g = int(v["id"]) // 10
+                    if g not in group_nats:
+                        group_nats[g] = int(v["nationality"])
+                except (TypeError, ValueError):
+                    continue
+
+    nat_counts: Dict[int, int] = {}
+    unknown_count = 0
+    for g in sorted(out_of_registry):
+        if g in group_nats:
+            n = group_nats[g]
+            nat_counts[n] = nat_counts.get(n, 0) + 1
+        else:
+            unknown_count += 1
+
+    collab_count = sum(c for n, c in nat_counts.items() if n >= 100)
+    collab_nats = sorted(n for n in nat_counts if n >= 100)
+    nat96_count = nat_counts.get(96, 0)
+    nat11_count = nat_counts.get(11, 0)
+    other_known = sum(c for n, c in nat_counts.items() if n < 100 and n not in (11, 96))
+
+    parts = []
+    if collab_count:
+        parts.append(f"{collab_count} 组联动舰（nationality {collab_nats[0]}–{collab_nats[-1]}）" if collab_nats else f"{collab_count} 组联动舰")
+    if nat96_count:
+        parts.append(f"{nat96_count} 组风帆/飓风舰（nationality 96）")
+    if nat11_count:
+        parts.append(f"{nat11_count} 组其他阵营舰（nationality 11）")
+    if other_known:
+        parts.append(f"{other_known} 组其他阵营舰")
+    if unknown_count:
+        parts.append(f"{unknown_count} 组在上游底表无记录（历史测试数据/占位 NPC）")
+
+    out_of_registry_summary = "，".join(parts) if parts else "未纳入清单"
+
     return {
         "chat_group_count": len(chat_group),
         "template_count": len(template),
@@ -95,6 +173,7 @@ def compute_juus_activity_stats(raw_dir: Path, registry: Dict[int, ShipTargetCon
         "union_count": len(union),
         "in_registry_count": len(in_registry),
         "out_of_registry_count": len(out_of_registry),
+        "out_of_registry_summary": out_of_registry_summary,
     }
 
 
@@ -105,7 +184,7 @@ def _build_explanations(
     special_90xxx_count: int,
     cn_primary_count: int,
     en_fallback_count: int,
-    juus_stats: Dict[str, int],
+    juus_stats: Dict[str, Any],
 ) -> ManifestExplanations:
     count_881 = (
         f"确定清单总数（{total} 位）= 去重合并后的全量「舰船组（ship_group）」条目数，"
@@ -113,7 +192,7 @@ def _build_explanations(
         f"{retrofit_form_count} 位是改装形态占位组（.改/·改/Retrofit，自身无独立语音表，"
         "台词挂在原舰 group 下）；"
         f"{special_90xxx_count} 位是 90000-99999 的特殊占位组（剧情 NPC / 演练镜像 / BOSS 镜像等，"
-        "其中部分与普通组同名，例如 90017 与某驱逐舰重名）。"
+        "其中 24 组维希教廷可玩舰如 90501 让·巴尔已按 nationality=9 与独立台词归入独立可玩角色）。"
         f"下游（PX-1207 / N3 / N7）若把 {total} 当「可玩角色总数」使用，应改用 {playable_count}。"
     )
     count_841 = (
@@ -127,7 +206,7 @@ def _build_explanations(
         f"activity_ins_npc_template 取到 {juus_stats['npc_template_count']} 个）的 ship_group 字段取并集，"
         f"本次实测得到 {juus_stats['union_count']} 个在 JUUs 中出现过的 group，其中 "
         f"{juus_stats['in_registry_count']} 个落在当前确定清单（{total}）内，"
-        f"{juus_stats['out_of_registry_count']} 个落在清单外（历史测试数据/占位 NPC，未纳入清单）。"
+        f"{juus_stats['out_of_registry_count']} 个落在清单外（按 nationality 统计：{juus_stats.get('out_of_registry_summary') or '未纳入清单'}）。"
         "PRD 原始「约 632」的统计口径在当前数据上无法复现，不排除是更早版本的注册表基数或统计脚本不同；"
         f"当前可复现、可比对的数字是 {juus_stats['union_count']}（JUUs 活跃 group 总数）"
         f"或 {juus_stats['in_registry_count']}（其中落在清单内的部分）。"
@@ -166,7 +245,7 @@ class ShipManifest:
     )
     filtering_rules: Dict[str, Any] = field(default_factory=dict)
     type_mapping_summary: Dict[str, Any] = field(default_factory=dict)
-    juus_activity_stats: Dict[str, int] = field(default_factory=dict)
+    juus_activity_stats: Dict[str, Any] = field(default_factory=dict)
     ships: List[ManifestShipEntry] = field(default_factory=list)
 
 
@@ -210,19 +289,33 @@ def build_manifest_data(
     retrofit_form_count = 0
     special_90xxx_count = 0
 
+    aggregator = RawDataAggregator(raw_dir=raw_dir)
+    aggregator.load_tables()
+    has_words_tables = bool(aggregator._cn_words or aggregator._en_words)
+
     for g, cfg in sorted(registry.items()):
         t_code = cfg.ship_type or group_types.get(g, 0)
         t_cn = ship_type_cn(t_code)
         types_found.setdefault(t_code, []).append(g)
 
-        if g in SPECIAL_90XXX_RANGE:
-            category = "special_90xxx"
+        has_v = None
+        if 90000 <= g < 100000 and has_words_tables:
+            mat = aggregator.extract_single(g, target_cfg=cfg, targets=registry)
+            has_v = len(mat.voicelines) > 0
+
+        category = classify_ship_category(
+            ship_group=g,
+            name_cn=cfg.name_cn,
+            name_en=cfg.name_en,
+            faction_key=cfg.faction_key,
+            has_voicelines=has_v,
+        )
+
+        if category == "special_90xxx":
             special_90xxx_count += 1
-        elif _is_retrofit_form(cfg.name_cn, cfg.name_en):
-            category = "retrofit_form"
+        elif category == "retrofit_form":
             retrofit_form_count += 1
         else:
-            category = "playable"
             playable_count += 1
 
         ship_entries.append(
@@ -279,10 +372,10 @@ def build_manifest_data(
             "deduplication": "id // 10 (ship_group), first CN entry wins, missing falls back to EN",
             "meta_handling": "META ships (nationality 97) remain independent personas",
             "category_rules": {
-                "special_90xxx": "ship_group in 90000..99999 (JUUs/story NPC, drill/simulation, boss mirrors)",
+                "special_90xxx": "ship_group in 90000..99999 special placeholder groups (NPC, drill, simulation, boss mirrors); excludes 24 Vichya Dominion groups with independent voicelines which are classified as playable",
                 "retrofit_form": "name_cn/name_en contains '.改', '·改', or 'Retrofit' "
                 "(own group id for stat purposes; voicelines live under the original group)",
-                "playable": "everything else: an independent playable character",
+                "playable": "everything else: independent playable characters (including 24 Vichya Dominion ships in 90xxx)",
             },
         },
         type_mapping_summary=type_summary,
@@ -331,15 +424,9 @@ def audit_voice_coverage(
     manifest_retrofit_form_count = 0
     manifest_special_90xxx_count = 0
     manifest_cn_primary_count = 0
-    for g, cfg in registry.items():
+    for _g, cfg in registry.items():
         if not cfg.fallback_en:
             manifest_cn_primary_count += 1
-        if g in SPECIAL_90XXX_RANGE:
-            manifest_special_90xxx_count += 1
-        elif _is_retrofit_form(cfg.name_cn, cfg.name_en):
-            manifest_retrofit_form_count += 1
-        else:
-            manifest_playable_count += 1
     manifest_en_fallback_count = total_ships - manifest_cn_primary_count
 
     zero_voice_ships: List[Dict[str, Any]] = []
@@ -371,15 +458,22 @@ def audit_voice_coverage(
             "unique_voicekeys_count": len(ship_base_keys),
         }
 
+        cat = classify_ship_category(
+            ship_group=g,
+            name_cn=cfg.name_cn,
+            name_en=cfg.name_en,
+            faction_key=cfg.faction_key,
+            has_voicelines=(v_count > 0),
+        )
+        if cat == "special_90xxx":
+            manifest_special_90xxx_count += 1
+        elif cat == "retrofit_form":
+            manifest_retrofit_form_count += 1
+        else:
+            manifest_playable_count += 1
+
         if v_count == 0:
-            # Classification mirrors ship_manifest.json's category rules: a
-            # 90xxx special group is always npc_or_simulation, regardless of
-            # its name; otherwise a retrofit-form name (.改 / ·改 / Retrofit,
-            # which upstream sometimes puts in name_cn instead of name_en)
-            # makes it retrofit_variant; everything else is npc_or_simulation.
-            if g in SPECIAL_90XXX_RANGE:
-                category = "npc_or_simulation"
-            elif _is_retrofit_form(mat.name_cn, mat.name_en):
+            if cat == "retrofit_form":
                 category = "retrofit_variant"
             else:
                 category = "npc_or_simulation"
@@ -440,7 +534,7 @@ def audit_voice_coverage(
         f"### 为什么存在 {len(zero_voice_ships)} 位「完全没有台词」的舰娘",
         "",
         f"经过对上游解包表与舰船组 ID 的溯源比对，{len(zero_voice_ships)} 位零台词舰娘均属以下两类技术占位组"
-        "（分类由代码按 .改/·改/Retrofit 命名规则与 90xxx group 范围实时计算，不是写死文字）：",
+        "（分类由代码按 classify_ship_category 实时计算，不是写死文字）：",
         f"1. **改装形态独立占位组 ({len(retrofit_examples)} 位)**：例如 {_fmt_examples(retrofit_examples) or '（无）'}。"
         "游戏底表为改装形态分配了独立 group id 用于数值结算，但其实际皮肤语音全部挂载在原舰 group 下；",
         f"2. **剧情 NPC / 演练测试 / BOSS 镜像组 ({len(npc_examples)} 位)**：例如 {_fmt_examples(npc_examples) or '（无）'}。"
