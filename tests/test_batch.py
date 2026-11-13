@@ -197,6 +197,55 @@ def test_appellation_rule_still_fails_master_without_canonical_source():
     assert res.severity == "error"
 
 
+def test_ship_type_map_complete_coverage():
+    """Verify numeric ship types 10, 13, 20, 21 are cleanly mapped (Issue #27)."""
+    from pipeline.config import SHIP_TYPE_MAP, ship_type_cn
+
+    assert SHIP_TYPE_MAP[10] == "航空战列舰"
+    assert SHIP_TYPE_MAP[13] == "浅水重炮舰"
+    assert SHIP_TYPE_MAP[20] == "导弹驱逐舰"
+    assert SHIP_TYPE_MAP[21] == "导弹驱逐舰"
+
+    assert ship_type_cn(10) == "航空战列舰"
+    assert ship_type_cn(13) == "浅水重炮舰"
+    assert ship_type_cn(20) == "导弹驱逐舰"
+    assert ship_type_cn(21) == "导弹驱逐舰"
+    # Unmapped code falls back to '舰娘'
+    assert ship_type_cn(9999) == "舰娘"
+
+
+def test_build_manifest_data_fictional(tmp_path: Path):
+    """Verify build_manifest_data produces required explanations and schema fields."""
+    from pipeline.reconcile import build_manifest_data
+
+    cn, en = _fictional_tables(tmp_path)
+    manifest = build_manifest_data(tmp_path)
+
+    assert manifest.total_ships == 3
+    assert manifest.cn_primary_count == 2
+    assert manifest.en_fallback_count == 1
+    # Explanations must be computed from this fixture's real numbers, not
+    # hardcoded 881/841/632 literals (Issue #27 / PR #32 F-1 & F-2): each
+    # explanation must cite the actual total/category counts it describes.
+    assert str(manifest.total_ships) in manifest.reconciliation_explanations.count_881
+    assert str(manifest.playable_count) in manifest.reconciliation_explanations.count_881
+    assert (
+        manifest.playable_count + manifest.retrofit_form_count + manifest.special_90xxx_count
+        == manifest.total_ships
+    )
+    assert str(manifest.cn_primary_count) in manifest.reconciliation_explanations.count_841
+    # count_632 keeps citing the PRD's historical "约 632" figure as a label,
+    # alongside the real, reproducible JUUs-activity union computed here.
+    assert "632" in manifest.reconciliation_explanations.count_632
+    assert (
+        str(manifest.juus_activity_stats["union_count"])
+        in manifest.reconciliation_explanations.count_632
+    )
+    # Type summary must contain mapped type_cn
+    assert "2" in manifest.type_mapping_summary
+    assert manifest.type_mapping_summary["2"]["type_cn"] == "轻巡洋舰"
+
+
 def test_appellation_rule_still_fails_player_appellation():
     """玩家/用户 remain hard errors even with canonical 主人."""
     from pipeline.validator.rules import AppellationRule
@@ -206,3 +255,50 @@ def test_appellation_rule_still_fails_player_appellation():
     res = AppellationRule().check(card, raw)
     assert res.passed is False
     assert res.severity == "error"
+
+
+def test_classify_ship_category_f5_vichya_and_fictional():
+    """Verify F-5: 90xxx Vichya ships with lines are playable, mirrors are special."""
+    from pipeline.reconcile import classify_ship_category
+
+    # 1. Real Vichya ship with voicelines -> playable
+    assert classify_ship_category(
+        ship_group=90501, name_cn="让·巴尔", name_en="Jean Bart",
+        faction_key="vichya_dominion", has_voicelines=True,
+    ) == "playable"
+
+    # 2. Vichya NPC / simulation mirror without voicelines (90080) -> special_90xxx
+    assert classify_ship_category(
+        ship_group=90080, name_cn="莫加多尔", name_en="Mogador",
+        faction_key="vichya_dominion", has_voicelines=False,
+    ) == "special_90xxx"
+
+    # 3. Non-Vichya 90xxx simulation / NPC (90001 Bismarck mirror) -> special_90xxx
+    assert classify_ship_category(
+        ship_group=90001, name_cn="俾斯麦", name_en="Bismarck",
+        faction_key="iron_blood", has_voicelines=False,
+    ) == "special_90xxx"
+
+    # 4. Non-Vichya 90xxx with voicelines (90024 Laffey mirror) -> special_90xxx
+    assert classify_ship_category(
+        ship_group=90024, name_cn="拉菲", name_en="Laffey",
+        faction_key="eagle_union", has_voicelines=True,
+    ) == "special_90xxx"
+
+    # 5. Fictional 90xxx Vichya ship in fictional test fixture -> playable
+    assert classify_ship_category(
+        ship_group=90999, name_cn="虚构维希舰", name_en="Fictional Vichya",
+        faction_key="vichya_dominion", has_voicelines=True,
+    ) == "playable"
+
+    # 6. Retrofit form is always retrofit_form
+    assert classify_ship_category(
+        ship_group=10199, name_cn="埃尔德里奇.改", name_en="Eldridge (Retrofit)",
+        faction_key="eagle_union", has_voicelines=False,
+    ) == "retrofit_form"
+
+    # 7. Normal playable ship
+    assert classify_ship_category(
+        ship_group=10117, name_cn="拉菲", name_en="Laffey",
+        faction_key="eagle_union", has_voicelines=True,
+    ) == "playable"

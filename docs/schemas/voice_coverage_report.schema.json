@@ -1,0 +1,109 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VoiceCoverageReport",
+  "description": "Schema for Juus Companion voiceline coverage audit report",
+  "type": "object",
+  "required": [
+    "generated_at",
+    "total_ships",
+    "ships_with_voicelines",
+    "zero_voice_ships_count",
+    "zero_voice_ships",
+    "voicekey_coverage",
+    "per_ship_summary"
+  ],
+  "properties": {
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "total_ships": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ships_with_voicelines": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "zero_voice_ships_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "zero_voice_ships": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ship_group",
+          "name_cn",
+          "name_en",
+          "faction_key",
+          "faction_cn",
+          "type_cn",
+          "voicelines_count"
+        ],
+        "properties": {
+          "ship_group": {
+            "type": "integer"
+          },
+          "name_cn": {
+            "type": "string"
+          },
+          "name_en": {
+            "type": "string"
+          },
+          "faction_key": {
+            "type": "string"
+          },
+          "faction_cn": {
+            "type": "string"
+          },
+          "type_cn": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "fallback_en": {
+            "type": "boolean"
+          },
+          "voicelines_count": {
+            "type": "integer"
+          },
+          "unique_voicekeys_count": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "voicekey_coverage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "voicekey",
+          "non_empty_count",
+          "non_empty_rate_total_pct",
+          "non_empty_rate_voiced_pct"
+        ],
+        "properties": {
+          "voicekey": {
+            "type": "string"
+          },
+          "non_empty_count": {
+            "type": "integer"
+          },
+          "non_empty_rate_total_pct": {
+            "type": "number"
+          },
+          "non_empty_rate_voiced_pct": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "per_ship_summary": {
+      "type": "object"
+    }
+  }
+}

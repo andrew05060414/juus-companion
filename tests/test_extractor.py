@@ -137,3 +137,97 @@ def test_variant_merging():
     assert 88889 in merged.merged_groups
     assert any("觉醒型" in n for n in merged.notes)
 
+
+def test_exact_skin_matching_behavior():
+    """Exact skin matching skin_id[:-1] == group vs legacy prefix (Issue #27)."""
+    # Exact match: group 88888, skin 888880
+    assert RawDataAggregator.is_skin_match("888880", "88888") is True
+    assert RawDataAggregator.is_skin_match("888881", "88888") is True
+    # Prefix collision scenario: group 888 vs skin 888880
+    # Legacy prefix matching returns True (false positive collision!)
+    assert RawDataAggregator.is_skin_match_legacy("888880", "888") is True
+    # Exact matching prevents prefix collision
+    assert RawDataAggregator.is_skin_match("888880", "888") is False
+
+
+def test_compare_skin_matching_detects_collision(tmp_path: Path):
+    """compare_skin_matching detects discrepancies when prefix-collision skins exist."""
+    cn_sharecfg = tmp_path / "CN" / "ShareCfg"
+    cn_sharecfgdata = tmp_path / "CN" / "sharecfgdata"
+    cn_sharecfg.mkdir(parents=True, exist_ok=True)
+    cn_sharecfgdata.mkdir(parents=True, exist_ok=True)
+
+    # Fictional table with group 888 and colliding skin 88810
+    with open(cn_sharecfgdata / "ship_skin_words.json", "w", encoding="utf-8") as f:
+        json.dump({"88810": {"login": "test"}}, f)
+    with open(cn_sharecfgdata / "ship_data_statistics.json", "w", encoding="utf-8") as f:
+        json.dump({}, f)
+    with open(cn_sharecfg / "ship_skin_words_extra.json", "w", encoding="utf-8") as f:
+        json.dump({}, f)
+
+    aggregator = RawDataAggregator(raw_dir=tmp_path)
+    # Check group 888: 88810 has len 5, 88810[:-1] is 8881 != 888
+    diffs = aggregator.compare_skin_matching(ship_groups=[888])
+    assert len(diffs) == 1
+    assert diffs[0]["ship_group"] == 888
+    assert "88810" in diffs[0]["prefix_only"]
+    assert diffs[0]["exact_only"] == []
+
+
+def test_extract_single_does_not_swallow_colliding_skin(tmp_path: Path):
+    """Regression for Issue #27 / PR #32 F-3: extract_single() and the
+    skin_ids list are the two production paths that actually changed when
+    skin matching moved from ``startswith`` to exact ``skin_id[:-1] ==
+    ship_group``. The helper-level tests above don't exercise either path,
+    so this test constructs a short group (888) with a colliding skin id
+    (88810, which actually belongs to group 8881) and asserts group 888's
+    extraction never absorbs it. On the old startswith-based production
+    code, this test fails: 88810 starts with "888", so its voicelines and
+    skin id would incorrectly leak into group 888's material.
+    """
+    cn_sharecfg = tmp_path / "CN" / "ShareCfg"
+    cn_sharecfgdata = tmp_path / "CN" / "sharecfgdata"
+    cn_sharecfg.mkdir(parents=True, exist_ok=True)
+    cn_sharecfgdata.mkdir(parents=True, exist_ok=True)
+
+    # Fictional group 888 (ship id 8880, 8880 // 10 == 888) and a colliding
+    # skin "88810" that actually belongs to a different group (8881).
+    stats_data = {
+        "8880": {
+            "id": 8880,
+            "name": "测试·舰888",
+            "english_name": "Test Ship 888",
+            "nationality": 1,
+            "type": 1,
+        }
+    }
+    with open(cn_sharecfgdata / "ship_data_statistics.json", "w", encoding="utf-8") as f:
+        json.dump(stats_data, f)
+
+    words_data = {
+        "8880": {"login": "虚构·888号舰娘报到。"},
+        "88810": {"login": "COLLISION_SHOULD_NOT_LEAK_INTO_888"},
+    }
+    with open(cn_sharecfgdata / "ship_skin_words.json", "w", encoding="utf-8") as f:
+        json.dump(words_data, f)
+    with open(cn_sharecfg / "ship_skin_words_extra.json", "w", encoding="utf-8") as f:
+        json.dump({}, f)
+    for tbl in [
+        "activity_ins_chat_group.json",
+        "activity_ins_chat_language.json",
+        "activity_ins_template.json",
+        "activity_ins_language.json",
+        "activity_ins_npc_template.json",
+        "memory_template.json",
+    ]:
+        with open(cn_sharecfg / tbl, "w", encoding="utf-8") as f:
+            json.dump({}, f)
+
+    aggregator = RawDataAggregator(raw_dir=tmp_path)
+    mat = aggregator.extract_single(ship_group=888)
+
+    assert "88810" not in mat.skin_ids
+    assert "8880" in mat.skin_ids
+    assert all(v.skin_id != "88810" for v in mat.voicelines)
+    assert all("COLLISION" not in v.text for v in mat.voicelines)
+    assert any("888号舰娘报到" in v.text for v in mat.voicelines)
