@@ -42,3 +42,25 @@ def test_guard_allows_oversized_synthetic_fixture(tmp_path: Path) -> None:
     candidate.write_bytes(b"{" + b"a" * MAX_JSON_BYTES + b"}")
 
     assert scan_paths(tmp_path, [Path("tests/fixtures/synthetic.json")]) == []
+
+
+def test_guard_rejects_deploy_secrets_directory(tmp_path: Path) -> None:
+    secret_file = tmp_path / "deploy" / "secrets" / "fcm.json"
+    secret_file.parent.mkdir(parents=True)
+    secret_file.write_text("{}", encoding="utf-8")
+
+    violations = scan_paths(tmp_path, [Path("deploy/secrets/fcm.json")])
+
+    assert len(violations) == 1
+    assert "forbidden private/secret directory" in violations[0].reason
+
+
+def test_guard_rejects_private_data_directory(tmp_path: Path) -> None:
+    priv_file = tmp_path / "private-data" / "ratings.json"
+    priv_file.parent.mkdir(parents=True)
+    priv_file.write_text("{}", encoding="utf-8")
+
+    violations = scan_paths(tmp_path, [Path("private-data/ratings.json")])
+
+    assert len(violations) == 1
+    assert "forbidden private/secret directory" in violations[0].reason
