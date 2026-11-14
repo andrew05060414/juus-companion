@@ -248,27 +248,32 @@ def audit_git_history(root: Path) -> tuple[int, int, list[AuditViolation]]:
                 "--root",
                 "--no-commit-id",
                 "--name-status",
+                "-z",
                 sha,
             ],
             capture_output=True,
-            text=True,
             check=True,
         )
-        for line in diff_tree.stdout.splitlines():
-            parts = line.strip().split()
-            if len(parts) >= 2:
-                status, file_path = parts[0], parts[1]
-                if status != "D":
-                    file_violation = check_file_path(file_path)
-                    if file_violation:
-                        violations.append(
-                            AuditViolation(
-                                category="Asset / Media Guard",
-                                target=file_path,
-                                detail=file_violation,
-                                commit=short_sha,
-                            )
+        fields = iter(diff_tree.stdout.decode("utf-8").split("\0"))
+        for status in fields:
+            if not status:
+                continue
+            file_paths = [next(fields)]
+            if status.startswith(("R", "C")):
+                file_paths.append(next(fields))
+            if status == "D":
+                continue
+            for file_path in file_paths:
+                file_violation = check_file_path(file_path)
+                if file_violation:
+                    violations.append(
+                        AuditViolation(
+                            category="Asset / Media Guard",
+                            target=file_path,
+                            detail=file_violation,
+                            commit=short_sha,
                         )
+                    )
 
         # 2. Check diff text for secrets and leaks (with --root for root commit)
         diff_show = subprocess.run(
