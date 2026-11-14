@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
+import subprocess
+import sys
+import tempfile
 import unittest
+from unittest.mock import patch
 
 from tools.audit_release import (
     AuditReport,
@@ -93,6 +98,135 @@ class TestAuditRelease(unittest.TestCase):
         line_with_placeholder = f"HOST={fake_ip}  # placeholder host"
         violations_ip = audit_content_line(line_with_placeholder, "test.py:2")
         self.assertTrue(any("Private IPv4 Address" in v.detail for v in violations_ip))
+
+
+class TestAuditReleaseGitPaths(unittest.TestCase):
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory(prefix="juus-audit-")
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.tool = Path(__file__).resolve().parents[1] / "tools" / "audit_release.py"
+        self.git("init", "-q")
+        self.git("config", "user.name", "Audit Test")
+        self.git("config", "user.email", "audit@example.invalid")
+        self.git("config", "commit.gpgsign", "false")
+        self.git("config", "core.hooksPath", str(self.root / "no-hooks"))
+
+    def git(self, *args: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(self.root), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        ).stdout
+
+    def add_file(self, path: str) -> None:
+        (self.root / path).write_text("Fictional audit fixture.\n", encoding="utf-8")
+        self.git("add", "--", path)
+        self.git("commit", "-qm", "Add synthetic fixture")
+
+    def audit_cli(self, mode: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(self.tool), "--root", str(self.root), mode, "--json"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+
+    def assert_image_violation(self, result: subprocess.CompletedProcess[str], path: str) -> None:
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        violations = json.loads(result.stdout)["violations"]
+        self.assertTrue(
+            any(v["target"] == path and "'.png'" in v["detail"] for v in violations),
+            result.stdout,
+        )
+
+    def test_history_rejects_deleted_image_with_spaces(self) -> None:
+        self.add_file("my cover.png")
+        self.git("rm", "--", "my cover.png")
+        self.git("commit", "-qm", "Remove synthetic fixture")
+        self.assert_image_violation(self.audit_cli("--history-only"), "my cover.png")
+
+    def test_history_rejects_deleted_image_without_spaces(self) -> None:
+        self.add_file("cover.png")
+        self.git("rm", "--", "cover.png")
+        self.git("commit", "-qm", "Remove synthetic fixture")
+        self.assert_image_violation(self.audit_cli("--history-only"), "cover.png")
+
+    def test_history_allows_markdown(self) -> None:
+        self.add_file("readme.md")
+        result = self.audit_cli("--history-only")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout)["violations"], [])
+
+    def test_history_rejects_rename_to_image_with_spaces(self) -> None:
+        self.add_file("readme.md")
+        self.git("mv", "readme.md", "my cover.png")
+        self.git("commit", "-qm", "Rename synthetic fixture")
+        self.assert_image_violation(self.audit_cli("--history-only"), "my cover.png")
+
+    def test_history_allows_rename_to_markdown_with_spaces(self) -> None:
+        self.add_file("readme.md")
+        self.git("mv", "readme.md", "my readme.md")
+        self.git("commit", "-qm", "Rename synthetic fixture")
+        result = self.audit_cli("--history-only")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout)["violations"], [])
+
+    def test_working_tree_rejects_image_with_spaces(self) -> None:
+        self.add_file("my cover.png")
+        result = self.audit_cli("--working-only")
+        self.assert_image_violation(result, "my cover.png")
+        self.assertEqual(json.loads(result.stdout)["violations"][0]["commit"], "")
+
+    def test_history_checks_both_paths_in_rename_and_copy_records(self) -> None:
+        original_run = subprocess.run
+
+        def detect_renames_and_copies(command: list[str], **kwargs):
+            # Plumbing diff-tree needs explicit flags to emit R/C records.
+            if "--name-status" in command:
+                command = [*command, "-M", "-C", "--find-copies-harder"]
+            return original_run(command, **kwargs)
+
+        self.add_file("old cover.png")
+        self.git("mv", "old cover.png", "renamed cover.png")
+        self.git("commit", "-qm", "Rename synthetic fixture")
+        rename_sha = self.git("rev-parse", "--short=8", "HEAD").strip()
+        self.assertTrue(
+            self.git("diff-tree", "-r", "--no-commit-id", "--name-status", "-M", "HEAD").startswith(
+                "R100\t"
+            )
+        )
+
+        (self.root / "copied cover.png").write_bytes((self.root / "renamed cover.png").read_bytes())
+        self.git("add", ".")
+        self.git("commit", "-qm", "Copy synthetic fixture")
+        copy_sha = self.git("rev-parse", "--short=8", "HEAD").strip()
+        self.assertTrue(
+            self.git(
+                "diff-tree",
+                "-r",
+                "--no-commit-id",
+                "--name-status",
+                "-C",
+                "--find-copies-harder",
+                "HEAD",
+            ).startswith("C100\t")
+        )
+
+        with patch("tools.audit_release.subprocess.run", side_effect=detect_renames_and_copies):
+            report = run_audit(self.root, check_working=False)
+        image_paths = {
+            (violation.commit, violation.target)
+            for violation in report.violations
+            if "'.png'" in violation.detail
+        }
+        self.assertIn((rename_sha, "old cover.png"), image_paths)
+        self.assertIn((rename_sha, "renamed cover.png"), image_paths)
+        self.assertIn((copy_sha, "renamed cover.png"), image_paths)
+        self.assertIn((copy_sha, "copied cover.png"), image_paths)
 
 
 if __name__ == "__main__":
