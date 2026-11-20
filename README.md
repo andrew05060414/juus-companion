@@ -88,6 +88,8 @@ uv run python tools/check_repository_guard.py
 uv run python tools/audit_release.py
 ```
 
+历史素材检查保留完整文件名（含空格），并检查改名、复制记录中的新旧路径。相关回归测试运行 `uv run pytest tests/test_audit_release.py -q`。
+
 ---
 
 ## 人设数据流水线（Pipeline）
