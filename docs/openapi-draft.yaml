@@ -1,10 +1,11 @@
 openapi: 3.1.0
 info:
   title: Juus Companion Brain API
-  version: 0.2.0-draft
+  version: 0.2.1-draft
   description: >-
     M1-01 独立大脑服务接口草案（ADR-0003，已接受），最后更新：2026-11-25。
-    ADR-0004 仍为提议，相关字段和操作已单独标注；本稿并非 v1 冻结版。
+    ADR-0004 仍为提议，相关字段和操作已单独标注。/v1 是目标路径，不代表草案已冻结；
+    相比 0.1.0-draft 增加鉴权与必填消息字段，客户端须使用同一版契约。
     服务端为真源，客户端仅缓存。标识符与同步游标均为不透明字符串。
     除设备注册外，客户端接口使用短期设备令牌；服务端从令牌解析用户和设备，
     按会话成员或资源所有者校验访问权限。私有调试和调度操作还须有独立权限。
@@ -31,6 +32,8 @@ paths:
       tags: [characters]
       summary: 列出可用角色的公开元数据
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '200':
           description: 角色列表
           content:
@@ -44,6 +47,8 @@ paths:
       tags: [characters]
       summary: 读取角色元数据和当前人设版本
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '200':
           description: 不包含角色卡或世界书原文
           content:
@@ -57,6 +62,8 @@ paths:
       tags: [conversations]
       summary: 列出当前用户的会话
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '200':
           description: 可见会话列表
           content:
@@ -72,6 +79,8 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/GroupCreate'}
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '201':
           description: 新建小群，创建者为初始用户成员
           content:
@@ -87,6 +96,8 @@ paths:
       tags: [conversations]
       summary: 读取会话元数据
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '200':
           description: 会话
           content:
@@ -102,6 +113,8 @@ paths:
       tags: [conversations]
       summary: 列出会话成员
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '200':
           description: 独立的用户与角色身份
           content:
@@ -124,6 +137,8 @@ paths:
               properties:
                 character_id: {$ref: '#/components/schemas/ResourceId'}
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '201':
           description: 新增的成员关系
           content:
@@ -149,6 +164,8 @@ paths:
       summary: 从小群移除角色成员，不删历史消息
       description: 至少保留创建者与一个角色。
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '204':
           description: 已移除
         '404':
@@ -171,6 +188,8 @@ paths:
         - $ref: '#/components/parameters/AfterCursor'
         - $ref: '#/components/parameters/Limit'
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '200':
           description: 消息及续传游标
           content:
@@ -187,7 +206,8 @@ paths:
       description: >-
         流式回复参考 ADR-0004（提议）。发送 Accept 为 text/event-stream
         时返回 SSE；否则返回 JSON。client_message_id 在同一用户内唯一，
-        相同负载重试不得创建第二条用户消息或再次生成；同键不同负载返回 409。
+        目标会话/角色与请求体都是幂等比较的一部分。相同负载重试不得创建第二条用户消息或再次生成；
+        同键不同负载返回 409。
       requestBody:
         required: true
         content:
@@ -195,6 +215,8 @@ paths:
             schema:
               $ref: '#/components/schemas/DirectMessageRequest'
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '201':
           description: 用户消息及本轮角色回复
           content:
@@ -222,6 +244,8 @@ paths:
             schema:
               $ref: '#/components/schemas/GroupMessageRequest'
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '201':
           description: 导演选择（含跳过）及本轮消息
           content:
@@ -251,6 +275,8 @@ paths:
           required: true
           schema: {$ref: '#/components/schemas/ResourceId'}
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '200':
           description: 生成结果
           content:
@@ -266,7 +292,10 @@ paths:
     post:
       operationId: registerDevice
       tags: [devices]
-      summary: 注册设备并签发短期令牌
+      summary: 注册设备，或在短期令牌过期后恢复原设备会话
+      description: >-
+        注册凭证一次性使用。恢复须重新认证并取得绑定原用户和原设备的恢复注册凭证；
+        恢复沿用设备编号和待投递队列，不接受客户端指定身份，也不重新激活已撤销设备。
       security:
         - EnrollmentBearer: []
       requestBody:
@@ -275,6 +304,12 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/DeviceRegistration'}
       responses:
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '200':
+          description: 已恢复原有活动设备的会话
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeviceSession'}
         '201':
           description: 新建设备及短期令牌
           content:
@@ -290,6 +325,8 @@ paths:
       tags: [devices]
       summary: 读取当前令牌绑定的设备
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '200':
           description: 设备元数据，不含凭据
           content:
@@ -301,8 +338,9 @@ paths:
       operationId: revokeDevice
       tags: [devices]
       summary: 撤销当前令牌绑定的设备
-      description: 撤销成功后，该设备的所有令牌立即失效。
+      description: 撤销成功后，该设备的所有令牌立即失效，并停止向它的目标推送。
       responses:
+        '403': {$ref: '#/components/responses/Forbidden'}
         '204':
           description: 已撤销
         '401':
@@ -318,6 +356,7 @@ paths:
       summary: 用当前有效的设备令牌换发短期令牌
       description: 仅限同一设备，须在过期前换发；换发成功后旧令牌立即失效。
       responses:
+        '403': {$ref: '#/components/responses/Forbidden'}
         '200':
           description: 新令牌
           content:
@@ -325,6 +364,49 @@ paths:
               schema: {$ref: '#/components/schemas/DeviceSession'}
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/devices/{device_id}/push-targets/{channel}:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+      - name: channel
+        in: path
+        required: true
+        schema: {$ref: '#/components/schemas/PushChannel'}
+    put:
+      operationId: setPushTarget
+      tags: [devices]
+      summary: 注册或轮换当前设备的通道目标；每个通道只保留一个
+      description: >-
+        目标只写，不在读取设备、账本或日志中回显。FCM 为设备的注册标识，
+        ntfy/UnifiedPush 为受信分发服务分配给该设备的目标；服务端仅允许预配置的服务，
+        不跟随重定向，不把客户端值当作任意可请求的 URL。供应商凭据仅存服务端。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [target]
+              properties:
+                target: {type: string, minLength: 1, writeOnly: true}
+      responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '204':
+          description: 已登记，可幂等重试
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: removePushTarget
+      tags: [devices]
+      summary: 移除当前设备的该通道目标，不改变消息确认状态
+      responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '204':
+          description: 该通道已无登记目标
         '404':
           $ref: '#/components/responses/NotFound'
   /v1/devices/{device_id}/deliveries:
@@ -337,10 +419,15 @@ paths:
       description: >-
         推送仅提供唤醒信号，不包含正文。读取不等于确认；重连可不带游标重新拉取所有未确认项。
         after 只用于继续扫描当前设备的待确认队列，不得把它当作持久化确认。
+        按不可变的账本追加顺序续读，不按剩余记录的偏移量分页；确认上一页不跳过下一页。
+        每项 delivery.message_id 等于 message.id。客户端按消息编号幂等落库，并持久化替换标记，
+        避免离线重试让已替换的气泡重新出现。每次重新生成须能淘汰该轮所有更早版本的旧气泡。
       parameters:
         - $ref: '#/components/parameters/AfterCursor'
         - $ref: '#/components/parameters/Limit'
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '200':
           description: 待确认的投递及对应消息
           content:
@@ -361,11 +448,13 @@ paths:
       summary: 确认客户端已持久化对应消息
       description: 只允许账本所属设备确认；重复确认返回同一结果，不改变首次确认时间。
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '200':
           description: 已确认的投递记录
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/Delivery'}
+              schema: {$ref: '#/components/schemas/AcknowledgedDelivery'}
         '404':
           $ref: '#/components/responses/NotFound'
   /v1/memory-entries:
@@ -381,6 +470,8 @@ paths:
           in: query
           schema: {$ref: '#/components/schemas/ResourceId'}
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '200':
           description: 已按权限过滤的条目
           content:
@@ -397,6 +488,8 @@ paths:
           required: true
           schema: {$ref: '#/components/schemas/ResourceId'}
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '200':
           description: 记忆条目
           content:
@@ -412,6 +505,8 @@ paths:
       tags: [proactive]
       summary: 列出会话中的提醒
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '200':
           description: 提醒列表
           content:
@@ -430,6 +525,8 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/ReminderInput'}
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '201':
           description: 已创建的提醒
           content:
@@ -449,6 +546,8 @@ paths:
       tags: [proactive]
       summary: 读取提醒
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '200':
           description: 提醒
           content:
@@ -466,6 +565,8 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/ReminderInput'}
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '200':
           description: 已更新的提醒
           content:
@@ -483,6 +584,8 @@ paths:
       tags: [proactive]
       summary: 取消未触发的提醒，不撤回已投递消息
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '204':
           description: 已取消
         '404':
@@ -504,6 +607,8 @@ paths:
       security:
         - InternalBearer: []
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '200':
           description: 本轮的装配追踪
           content:
@@ -533,6 +638,8 @@ paths:
                   type: string
                   format: date-time
       responses:
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '200':
           description: 领取数量、生成消息及对应投递记录编号
           content:
@@ -596,6 +703,11 @@ components:
       content:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}
+    Forbidden:
+      description: 凭证有效，但没有执行操作的权限
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
     NotFound:
       description: 资源不存在或对调用者不可见
       content:
@@ -616,6 +728,7 @@ components:
       format: date-time
     Character:
       type: object
+      additionalProperties: false
       description: >-
         角色注册表的展示元数据。persona_version 指向服务端私有人设版本；
         L0 角色卡与 L1 世界书分层参考 ADR-0004（提议），不返回原文。
@@ -624,6 +737,27 @@ components:
         id: {$ref: '#/components/schemas/ResourceId'}
         display_name: {type: string, minLength: 1}
         persona_version: {$ref: '#/components/schemas/ResourceId'}
+    CharacterRegistryOverlay:
+      type: object
+      description: >-
+        仅服务端使用，按 (character_id, persona_version) 关联 Character.id 与 persona_version。
+        成长改动与原卡分开存储；版本可回滚。审核字段只读受信覆盖层，不从导入卡或 extensions 推断。
+        仅经审核的 false 可解除年龄限制；缺失覆盖层、缺失字段或 null 均按 true 处理。
+        卡内未知扩展由导入器无损保留，不执行、不返回给客户端。
+      required: [character_id, persona_version]
+      properties:
+        character_id: {$ref: '#/components/schemas/ResourceId'}
+        persona_version: {$ref: '#/components/schemas/ResourceId'}
+        appearance_minor: {type: [boolean, 'null']}
+        reviewed_by: {$ref: '#/components/schemas/ResourceId'}
+        reviewed_at: {$ref: '#/components/schemas/Timestamp'}
+        basis: {type: string, minLength: 1}
+      if:
+        required: [appearance_minor]
+        properties:
+          appearance_minor: {const: false}
+      then:
+        required: [reviewed_by, reviewed_at, basis]
     Conversation:
       type: object
       description: 单聊为用户与单个角色的稳定会话；小群通过 Membership 管理独立成员。
@@ -663,16 +797,17 @@ components:
       additionalProperties: false
       properties:
         display_name: {type: string, minLength: 1}
-        platform: {type: string}
+        platform: {type: string, minLength: 1}
     Device:
       type: object
+      additionalProperties: false
       description: 客户端缓存身份，不包含推送、模型或第三方服务凭据。
       required: [id, user_id, display_name, platform, status, created_at]
       properties:
         id: {$ref: '#/components/schemas/ResourceId'}
         user_id: {$ref: '#/components/schemas/ResourceId'}
-        display_name: {type: string}
-        platform: {type: string}
+        display_name: {type: string, minLength: 1}
+        platform: {type: string, minLength: 1}
         status: {type: string, enum: [active, revoked]}
         created_at: {$ref: '#/components/schemas/Timestamp'}
     DeviceSession:
@@ -682,8 +817,32 @@ components:
         device: {$ref: '#/components/schemas/Device'}
         access_token:
           type: string
+          minLength: 1
           description: 只在签发时返回的短期令牌，用于 Authorization Bearer。
         expires_at: {$ref: '#/components/schemas/Timestamp'}
+    PushChannel:
+      type: string
+      enum: [fcm, ntfy]
+    PushAttempt:
+      type: object
+      additionalProperties: false
+      description: >-
+        私有账本按 Delivery.id 追加每次尝试；FCM 为主、ntfy/UnifiedPush 兜底，重试不覆盖先前结果。
+        accepted 仅表示通道接收，不确认客户端已落库。不保存目标、正文或供应商原始响应。
+      required: [id, delivery_id, channel, attempted_at, outcome]
+      properties:
+        id: {$ref: '#/components/schemas/ResourceId'}
+        delivery_id: {$ref: '#/components/schemas/ResourceId'}
+        channel: {$ref: '#/components/schemas/PushChannel'}
+        attempted_at: {$ref: '#/components/schemas/Timestamp'}
+        outcome: {type: string, enum: [accepted, failed, unknown]}
+    PushWakeup:
+      type: object
+      additionalProperties: false
+      description: 两种通道共用的唤醒数据；通用通知文字由固定模板渲染，不传正文、发件人或凭据。
+      required: [message_id]
+      properties:
+        message_id: {$ref: '#/components/schemas/ResourceId'}
     Delivery:
       type: object
       description: >-
@@ -705,6 +864,11 @@ components:
       else:
         not:
           required: [acknowledged_at]
+    AcknowledgedDelivery:
+      allOf:
+        - $ref: '#/components/schemas/Delivery'
+        - properties:
+            status: {const: acknowledged}
     DeliveryPage:
       type: object
       required: [items, next_cursor]
@@ -715,13 +879,18 @@ components:
             type: object
             required: [delivery, message]
             properties:
-              delivery: {$ref: '#/components/schemas/Delivery'}
+              delivery:
+                allOf:
+                  - $ref: '#/components/schemas/Delivery'
+                  - properties:
+                      status: {const: queued}
               message: {$ref: '#/components/schemas/Message'}
               replaced_message_ids:
                 description: 重新生成后须从缓存移除的旧气泡编号，与对应新气泡一起落库再确认。
-                $ref: '#/components/schemas/MessageIds'
+                $ref: '#/components/schemas/ResourceIds'
         next_cursor:
           type: [string, 'null']
+          minLength: 1
           description: 无后续页时为 null。
     MemoryEntry:
       type: object
@@ -854,11 +1023,13 @@ components:
           type: string
           description: 文本正文；语音或表情使用服务端提供的字幕或描述。
         media_id:
-          description: 语音或表情的服务端资源编号，不是 URL。
-          $ref: '#/components/schemas/ResourceId'
+          description: 语音或表情必须为非空资源编号，不是 URL；文本可省略或为 null。
+          type: [string, 'null']
+          minLength: 1
         origin: {type: string, enum: [single, group, proactive]}
         turn_id:
           type: [string, 'null']
+          minLength: 1
           description: 单聊或群聊的一轮请求和回复共享编号；没有轮次的消息为 null。
         bubble_index: {type: integer, minimum: 0}
         created_at: {$ref: '#/components/schemas/Timestamp'}
@@ -868,9 +1039,11 @@ components:
               type: {enum: [voice, sticker]}
           then:
             required: [media_id]
+            properties:
+              media_id: {$ref: '#/components/schemas/ResourceId'}
           else:
-            not:
-              required: [media_id]
+            properties:
+              media_id: {type: 'null'}
         - if:
             properties:
               role: {const: assistant}
@@ -883,7 +1056,7 @@ components:
           then:
             properties:
               turn_id: {$ref: '#/components/schemas/ResourceId'}
-    MessageIds:
+    ResourceIds:
       type: array
       uniqueItems: true
       items: {$ref: '#/components/schemas/ResourceId'}
@@ -903,7 +1076,17 @@ components:
           items: {$ref: '#/components/schemas/Message'}
         next_cursor:
           type: [string, 'null']
+          minLength: 1
           description: 末条消息后的续传游标；仅空页返回 null。
+      if:
+        properties:
+          messages: {maxItems: 0}
+      then:
+        properties:
+          next_cursor: {type: 'null'}
+      else:
+        properties:
+          next_cursor: {type: string}
     RegeneratedReply:
       type: object
       required: [messages, replaced_message_ids]
@@ -911,7 +1094,7 @@ components:
         messages:
           type: array
           items: {$ref: '#/components/schemas/Message'}
-        replaced_message_ids: {$ref: '#/components/schemas/MessageIds'}
+        replaced_message_ids: {$ref: '#/components/schemas/ResourceIds'}
     MessageStream:
       type: string
       description: >-
@@ -931,24 +1114,25 @@ components:
       type: object
       required: [turn_id, decisions, messages]
       properties:
-        turn_id: {type: string}
+        turn_id: {$ref: '#/components/schemas/ResourceId'}
         decisions:
           type: array
+          maxItems: 3
           items: {$ref: '#/components/schemas/DirectorDecision'}
         messages:
           type: array
           items: {$ref: '#/components/schemas/Message'}
     ProactiveTickResult:
       type: object
-      required: [claimed, messages]
+      required: [claimed, messages, delivery_ledger_ids]
       properties:
         claimed: {type: integer, minimum: 0}
         messages:
           type: array
           items: {$ref: '#/components/schemas/Message'}
         delivery_ledger_ids:
-          type: array
-          items: {type: string}
+          description: 本次新建的 Delivery.id，无记录时为空数组。
+          $ref: '#/components/schemas/ResourceIds'
     Error:
       type: object
       required: [code, message]
