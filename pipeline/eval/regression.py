@@ -249,7 +249,13 @@ def judge_pairs(
                 for label, (_, case) in zip(("A", "B"), candidates, strict=True)
             },
         }
-        record = {"scenario_id": new["scenario_id"], "plan": new["plan"], "order": order}
+        record = {
+            "scenario_id": new["scenario_id"],
+            "plan": new["plan"],
+            "order": order,
+            "judge_model": route,
+            "usage": None,
+        }
         try:
             result = provider.chat(
                 model=route,

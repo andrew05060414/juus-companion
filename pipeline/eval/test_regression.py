@@ -272,3 +272,83 @@ def test_overlapping_catchphrase_variants_count_once():
     metrics = regression.measure(make_case("catchphrase", "且慢些再走。", "且慢些，且慢些。"), card)
     assert metrics["catchphrase_hit_rate"] == 1.0
     assert metrics["catchphrase_repeat_rate"] == 0.5
+
+
+@pytest.mark.parametrize(
+    ("judge_price", "timeout", "expected_cost"),
+    [
+        (["--model-price", "eval-judge=3:4"], False, 0.00025),
+        ([], False, None),
+        (["--model-price", "eval-judge=3:4"], True, None),
+    ],
+)
+def test_pairwise_judge_cost_is_included_in_run(
+    tmp_path, monkeypatch, judge_price, timeout, expected_cost
+):
+    class Provider:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def chat(self, *, model, **kwargs):
+            if model == "eval-judge":
+                if timeout:
+                    raise TimeoutError("read timed out")
+                content, prompt, completion = "不是 JSON", 60, 10
+            else:
+                content, prompt, completion = "虚构回复", 20, 5
+            return {
+                "content": content,
+                "usage": {
+                    "prompt_tokens": prompt,
+                    "completion_tokens": completion,
+                    "total_tokens": prompt + completion,
+                },
+            }
+
+    monkeypatch.setattr(chat_eval, "OpenAICompatibleProvider", Provider)
+    args = [
+        "--live",
+        "--confirm-spend",
+        "--max-calls",
+        "2",
+        "--base-url",
+        "http://localhost",
+        "--character-card",
+        str(CARD),
+        "--models",
+        "candidate",
+        "--plans",
+        "mobile_chat",
+        "--scenarios",
+        "daily_chat",
+        "--model-price",
+        "candidate=1:2",
+    ]
+    baseline, current = tmp_path / "baseline", tmp_path / "current"
+    assert chat_eval.main([*args, "--out-dir", str(baseline)]) == 0
+    assert (
+        chat_eval.main(
+            [
+                *args,
+                "--baseline",
+                str(baseline),
+                "--out-dir",
+                str(current),
+                "--judge-model",
+                "eval-judge",
+                *judge_price,
+            ]
+        )
+        == 0
+    )
+    assert (current / "results.private.jsonl").is_file()
+    assert (current / "regression.md").is_file()
+    record = json.loads((current / "judge.private.jsonl").read_text(encoding="utf-8"))
+    run = json.loads((current / "run.json").read_text(encoding="utf-8"))
+    assert record["verdict"] == "无有效结果"
+    assert record["usage"] == (
+        None if timeout else {"prompt_tokens": 60, "completion_tokens": 10, "total_tokens": 70}
+    )
+    assert record["cost_usd"] == (pytest.approx(0.00022) if expected_cost else None)
+    assert run["recorded_total_tokens"] == (25 if timeout else 95)
+    assert run["external_cost_usd"] == expected_cost

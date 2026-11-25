@@ -1119,6 +1119,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
     blind, mapping = make_blind_records(results)
     judged: list[dict[str, Any]] = []
+    judge_costs: list[float | None] = []
     if args.judge_model and baseline_results is None:
         judge_spec = next(
             (model for model in models if model.model_id == args.judge_model),
@@ -1132,13 +1133,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     if baseline_results is not None:
         pairs = regression.pair_results(baseline_results, results)
         if args.judge_model:
+            judge_spec = next(
+                (model for model in models if model.model_id == args.judge_model),
+                ModelSpec(model_id=args.judge_model, label="judge"),
+            )
+            judge_spec = apply_prices([judge_spec], args.model_price)[0]
             judged = regression.judge_pairs(provider, args.judge_model, pairs, card)
+            for record in judged:
+                usage = record["usage"]
+                cost = calculate_cost(usage, judge_spec) if usage else None
+                record["cost_usd"] = cost
+                judge_costs.append(cost)
         regression.write_report(args.out_dir / "regression.md", pairs, card, thresholds, judged)
     write_jsonl(args.out_dir / "blind.jsonl", blind)
     write_blind_markdown(args.out_dir / "blind.md", blind)
     write_json(args.out_dir / "mapping.private.json", mapping)
     write_jsonl(args.out_dir / "results.private.jsonl", results)
     write_jsonl(args.out_dir / "judge.private.jsonl", judged)
+    costs = [item["total_cost_usd"] for item in results] + judge_costs
     metadata = {
         "created_at": utc_now(),
         "mode": mode,
@@ -1151,12 +1163,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         "expected_calls": expected_calls,
         "actual_generation_cases": len(results),
         "judge_cases": len(judged),
-        "external_cost_usd": (
-            round(sum(item["total_cost_usd"] or 0 for item in results), 8)
-            if all(item["total_cost_usd"] is not None for item in results)
-            else None
+        "recorded_total_tokens": sum(item["total_tokens"] for item in results) + sum(
+            (item.get("usage") or {}).get("total_tokens", 0) for item in judged
         ),
-        "cost_note": "null means the model price was not supplied; usage is still recorded.",
+        "external_cost_usd": (
+            round(sum(cost for cost in costs if cost is not None), 8)
+            if None not in costs else None
+        ),
+        "cost_note": "null means at least one included call has unknown pricing or usage.",
     }
     write_json(args.out_dir / "run.json", metadata)
     print(json.dumps(metadata, ensure_ascii=False, indent=2))
