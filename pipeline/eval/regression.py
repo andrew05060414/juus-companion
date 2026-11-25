@@ -211,14 +211,16 @@ def parse_json_object(text: str) -> dict[str, Any] | None:
         parsed = json.loads(candidate)
         return parsed if isinstance(parsed, dict) else None
     except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", candidate, flags=re.DOTALL)
-        if not match:
-            return None
+        pass
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", candidate):
         try:
-            parsed = json.loads(match.group(0))
-            return parsed if isinstance(parsed, dict) else None
+            parsed, _ = decoder.raw_decode(candidate, match.start())
         except json.JSONDecodeError:
-            return None
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
 
 
 def judge_pairs(

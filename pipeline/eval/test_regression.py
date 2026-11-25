@@ -274,6 +274,15 @@ def test_overlapping_catchphrase_variants_count_once():
     assert metrics["catchphrase_repeat_rate"] == 0.5
 
 
+def test_judge_parser_skips_literal_braces_before_verdict():
+    reply = '称呼用 {user} 合理。{"winner": "A", "note": {"tone": "自然"}}'
+    assert regression.parse_json_object(reply) == {"winner": "A", "note": {"tone": "自然"}}
+
+
+def test_judge_parser_rejects_json_array():
+    assert regression.parse_json_object('[{"winner": "A"}]') is None
+
+
 @pytest.mark.parametrize(
     ("judge_price", "timeout", "expected_cost"),
     [
