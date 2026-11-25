@@ -1,29 +1,178 @@
 openapi: 3.1.0
 info:
   title: Juus Companion Brain API
-  version: 0.1.0-draft
+  version: 0.2.0-draft
   description: >-
-    M0-3 技术验证后留下的服务端接口契约大纲。角色卡、世界书、聊天记录和
-    推送凭据不属于公开仓库；示例只描述接口形状。
+    M1-01 独立大脑服务接口草案（ADR-0003，已接受），最后更新：2026-11-25。
+    ADR-0004 仍为提议，相关字段和操作已单独标注；本稿并非 v1 冻结版。
+    服务端为真源，客户端仅缓存。标识符与同步游标均为不透明字符串。
+    除设备注册外，客户端接口使用短期设备令牌；服务端从令牌解析用户和设备，
+    按会话成员或资源所有者校验访问权限。私有调试和调度操作还须有独立权限。
+    客户端鉴权失败返回 401，已认证但缺少操作权限返回 403；
+    不可见的资源可按不存在返回 404。
 servers:
   - url: http://localhost:8000
-    description: Local development only
+    description: 仅用于本地开发；远程访问使用 HTTPS。
+security:
+  - DeviceBearer: []
 tags:
+  - name: characters
   - name: conversations
   - name: groups
+  - name: devices
+  - name: deliveries
+  - name: memory
   - name: proactive
+  - name: debug
 paths:
+  /v1/characters:
+    get:
+      operationId: listCharacters
+      tags: [characters]
+      summary: 列出可用角色的公开元数据
+      responses:
+        '200':
+          description: 角色列表
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/Character'}}
+  /v1/characters/{character_id}:
+    parameters:
+      - $ref: '#/components/parameters/CharacterId'
+    get:
+      operationId: getCharacter
+      tags: [characters]
+      summary: 读取角色元数据和当前人设版本
+      responses:
+        '200':
+          description: 不包含角色卡或世界书原文
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Character'}
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/conversations:
+    get:
+      operationId: listConversations
+      tags: [conversations]
+      summary: 列出当前用户的会话
+      responses:
+        '200':
+          description: 可见会话列表
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/Conversation'}}
+    post:
+      operationId: createGroupConversation
+      tags: [groups]
+      summary: 创建小群；单聊由发送接口查找或创建
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/GroupCreate'}
+      responses:
+        '201':
+          description: 新建小群，创建者为初始用户成员
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Conversation'}
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/conversations/{conversation_id}:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    get:
+      operationId: getConversation
+      tags: [conversations]
+      summary: 读取会话元数据
+      responses:
+        '200':
+          description: 会话
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Conversation'}
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/conversations/{conversation_id}/memberships:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    get:
+      operationId: listMemberships
+      tags: [conversations]
+      summary: 列出会话成员
+      responses:
+        '200':
+          description: 独立的用户与角色身份
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/Membership'}}
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      operationId: addGroupMembership
+      tags: [groups]
+      summary: 向小群添加角色成员
+      description: 小群成员总数以 2 至 6 人为限，含创建者。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [character_id]
+              properties:
+                character_id: {$ref: '#/components/schemas/ResourceId'}
+      responses:
+        '201':
+          description: 新增的成员关系
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Membership'}
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 角色已在群中或会话不允许添加成员
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /v1/conversations/{conversation_id}/memberships/{membership_id}:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+      - name: membership_id
+        in: path
+        required: true
+        schema: {$ref: '#/components/schemas/ResourceId'}
+    delete:
+      operationId: deleteGroupMembership
+      tags: [groups]
+      summary: 从小群移除角色成员，不删历史消息
+      description: 至少保留创建者与一个角色。
+      responses:
+        '204':
+          description: 已移除
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 会话不允许移除该成员
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
   /v1/conversations/{conversation_id}/messages:
     get:
+      operationId: listMessages
       tags: [conversations]
-      summary: Read messages after a cursor
+      summary: 按服务端顺序获取消息历史
+      description: >-
+        省略 after 时从历史起点读取；游标只适用于当前会话，不用于投递同步。
+        非空页返回末条消息后的续传游标；遇到空页时客户端保留上一游标以继续增量读取。
       parameters:
         - $ref: '#/components/parameters/ConversationId'
         - $ref: '#/components/parameters/AfterCursor'
         - $ref: '#/components/parameters/Limit'
       responses:
         '200':
-          description: Ordered messages and the next cursor
+          description: 消息及续传游标
           content:
             application/json:
               schema:
@@ -32,8 +181,13 @@ paths:
           $ref: '#/components/responses/NotFound'
   /v1/conversations/direct/messages:
     post:
+      operationId: sendDirectMessage
       tags: [conversations]
-      summary: Send one user message to one character
+      summary: 发送单聊消息，查找或创建用户与该角色的单聊
+      description: >-
+        流式回复参考 ADR-0004（提议）。发送 Accept 为 text/event-stream
+        时返回 SSE；否则返回 JSON。client_message_id 在同一用户内唯一，
+        相同负载重试不得创建第二条用户消息或再次生成；同键不同负载返回 409。
       requestBody:
         required: true
         content:
@@ -42,17 +196,23 @@ paths:
               $ref: '#/components/schemas/DirectMessageRequest'
       responses:
         '201':
-          description: User message and generated character reply
+          description: 用户消息及本轮角色回复
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/MessageBatch'
+            text/event-stream:
+              schema: {$ref: '#/components/schemas/MessageStream'}
+        '404':
+          $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/IdempotencyConflict'
   /v1/groups/{group_id}/messages:
     post:
+      operationId: sendGroupMessage
       tags: [groups]
-      summary: Add a user message and run the bounded group director
+      summary: 发送群聊消息，由导演安排有限轮次
+      description: client_message_id 的幂等规则同单聊发送。
       parameters:
         - $ref: '#/components/parameters/GroupId'
       requestBody:
@@ -63,21 +223,304 @@ paths:
               $ref: '#/components/schemas/GroupMessageRequest'
       responses:
         '201':
-          description: Director decisions, skips, and generated messages
+          description: 导演选择（含跳过）及本轮消息
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/GroupTurn'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+  /v1/conversations/{conversation_id}/turns/{turn_id}/regenerate:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+      - $ref: '#/components/parameters/TurnId'
+    post:
+      operationId: regenerateDirectReply
+      tags: [conversations]
+      summary: 重新生成单聊的整轮角色回复
+      description: >-
+        参考 ADR-0004（提议）。保留用户消息与 turn_id；成功时整轮替换旧角色气泡，
+        失败时保留原回复。返回的新消息及 replaced_message_ids 供客户端更新缓存。
+        客户端使用 Idempotency-Key 重试同一次生成，不得重复替换。
+        与发送接口相同，Accept 为 text/event-stream 时返回 SSE。
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {$ref: '#/components/schemas/ResourceId'}
+      responses:
+        '200':
+          description: 生成结果
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RegeneratedReply'}
+            text/event-stream:
+              schema: {$ref: '#/components/schemas/MessageStream'}
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+  /v1/devices:
+    post:
+      operationId: registerDevice
+      tags: [devices]
+      summary: 注册设备并签发短期令牌
+      security:
+        - EnrollmentBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DeviceRegistration'}
+      responses:
+        '201':
+          description: 新建设备及短期令牌
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeviceSession'}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/devices/{device_id}:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    get:
+      operationId: getDevice
+      tags: [devices]
+      summary: 读取当前令牌绑定的设备
+      responses:
+        '200':
+          description: 设备元数据，不含凭据
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Device'}
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: revokeDevice
+      tags: [devices]
+      summary: 撤销当前令牌绑定的设备
+      description: 撤销成功后，该设备的所有令牌立即失效。
+      responses:
+        '204':
+          description: 已撤销
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/devices/{device_id}/token:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    post:
+      operationId: refreshDeviceToken
+      tags: [devices]
+      summary: 用当前有效的设备令牌换发短期令牌
+      description: 仅限同一设备，须在过期前换发；换发成功后旧令牌立即失效。
+      responses:
+        '200':
+          description: 新令牌
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeviceSession'}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/devices/{device_id}/deliveries:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    get:
+      operationId: syncDeliveries
+      tags: [deliveries]
+      summary: 拉取当前设备尚未确认的投递与正文
+      description: >-
+        推送仅提供唤醒信号，不包含正文。读取不等于确认；重连可不带游标重新拉取所有未确认项。
+        after 只用于继续扫描当前设备的待确认队列，不得把它当作持久化确认。
+      parameters:
+        - $ref: '#/components/parameters/AfterCursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 待确认的投递及对应消息
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeliveryPage'}
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/devices/{device_id}/deliveries/{delivery_id}/ack:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+      - name: delivery_id
+        in: path
+        required: true
+        schema: {$ref: '#/components/schemas/ResourceId'}
+    put:
+      operationId: acknowledgeDelivery
+      tags: [deliveries]
+      summary: 确认客户端已持久化对应消息
+      description: 只允许账本所属设备确认；重复确认返回同一结果，不改变首次确认时间。
+      responses:
+        '200':
+          description: 已确认的投递记录
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Delivery'}
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/memory-entries:
+    get:
+      operationId: listMemoryEntries
+      tags: [memory]
+      summary: 列出有权访问的长期记忆或个人档案
+      description: >-
+        分层参考 ADR-0004（提议）。按会话过滤时仅返回该私聊的 L3 条目；
+        不提供客户端写入角色卡、世界书或成长暂存的接口。
+      parameters:
+        - name: conversation_id
+          in: query
+          schema: {$ref: '#/components/schemas/ResourceId'}
+      responses:
+        '200':
+          description: 已按权限过滤的条目
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/MemoryEntry'}}
+  /v1/memory-entries/{memory_entry_id}:
+    get:
+      operationId: getMemoryEntry
+      tags: [memory]
+      summary: 读取单条记忆；分层参考 ADR-0004（提议）
+      parameters:
+        - name: memory_entry_id
+          in: path
+          required: true
+          schema: {$ref: '#/components/schemas/ResourceId'}
+      responses:
+        '200':
+          description: 记忆条目
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MemoryEntry'}
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/conversations/{conversation_id}/reminders:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    get:
+      operationId: listReminders
+      tags: [proactive]
+      summary: 列出会话中的提醒
+      responses:
+        '200':
+          description: 提醒列表
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/Reminder'}}
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      operationId: createReminder
+      tags: [proactive]
+      summary: 创建结构化提醒
+      description: 客户端只能以当前用户身份创建；角色自建提醒由服务端写入，客户端不能冒用角色身份。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReminderInput'}
+      responses:
+        '201':
+          description: 已创建的提醒
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Reminder'}
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/conversations/{conversation_id}/reminders/{reminder_id}:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+      - name: reminder_id
+        in: path
+        required: true
+        schema: {$ref: '#/components/schemas/ResourceId'}
+    get:
+      operationId: getReminder
+      tags: [proactive]
+      summary: 读取提醒
+      responses:
+        '200':
+          description: 提醒
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Reminder'}
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      operationId: updateReminder
+      tags: [proactive]
+      summary: 替换尚未触发的提醒内容
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReminderInput'}
+      responses:
+        '200':
+          description: 已更新的提醒
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Reminder'}
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 提醒已触发或取消
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+    delete:
+      operationId: cancelReminder
+      tags: [proactive]
+      summary: 取消未触发的提醒，不撤回已投递消息
+      responses:
+        '204':
+          description: 已取消
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 提醒已触发
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /v1/conversations/{conversation_id}/turns/{turn_id}/prompt-traces:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+      - $ref: '#/components/parameters/TurnId'
+    get:
+      operationId: listPromptTraces
+      tags: [debug]
+      summary: 读取一轮生成的脱敏装配追踪（ADR-0004，提议）
+      description: 仅私有调试权限可访问。装配、重试和重新生成各自留下追踪，不返回完整提示词。
+      security:
+        - InternalBearer: []
+      responses:
+        '200':
+          description: 本轮的装配追踪
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: '#/components/schemas/PromptTrace'}}
+        '404':
+          $ref: '#/components/responses/NotFound'
   /v1/proactive/ticks:
     post:
+      operationId: runProactiveTick
       tags: [proactive]
-      summary: Claim due proactive jobs and append generated messages
+      summary: 领取到期的主动任务并追加生成消息
+      security:
+        - InternalBearer: []
       description: >-
-        The production implementation must claim jobs idempotently and create a
-        delivery-ledger row before handing work to FCM/ntfy. The client later
-        acknowledges persistence; a push notification is only a wake-up signal.
+        仅内部调度权限可调用。同一任务不得被重复领取；生成的消息须先进入投递账本，
+        再触发唤醒通知。提醒时间、标题和行动来自结构化提醒，不由模型编造（参考 ADR-0004，提议）。
       requestBody:
         required: true
         content:
@@ -91,71 +534,359 @@ paths:
                   format: date-time
       responses:
         '200':
-          description: Claimed jobs and their message IDs
+          description: 领取数量、生成消息及对应投递记录编号
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProactiveTickResult'
 components:
+  securitySchemes:
+    DeviceBearer:
+      type: http
+      scheme: bearer
+      description: 短期设备令牌。服务端凭据不下发至客户端。
+    EnrollmentBearer:
+      type: http
+      scheme: bearer
+      description: 已绑定用户的设备注册凭证，签发与交付方式由 M1-02 实现；不使用第三方 OAuth。
+    InternalBearer:
+      type: http
+      scheme: bearer
+      description: 仅供服务端私有调用。调度与调试分别授权，普通设备令牌不可用。
   parameters:
+    CharacterId:
+      name: character_id
+      in: path
+      required: true
+      schema: {$ref: '#/components/schemas/ResourceId'}
     ConversationId:
       name: conversation_id
       in: path
       required: true
-      schema: {type: string}
+      schema: {$ref: '#/components/schemas/ResourceId'}
     GroupId:
       name: group_id
       in: path
       required: true
-      schema: {type: string}
+      description: 小群会话的 Conversation.id。
+      schema: {$ref: '#/components/schemas/ResourceId'}
+    DeviceId:
+      name: device_id
+      in: path
+      required: true
+      schema: {$ref: '#/components/schemas/ResourceId'}
+    TurnId:
+      name: turn_id
+      in: path
+      required: true
+      schema: {$ref: '#/components/schemas/ResourceId'}
     AfterCursor:
       name: after
       in: query
       required: false
-      schema: {type: string}
+      schema: {$ref: '#/components/schemas/ResourceId'}
     Limit:
       name: limit
       in: query
       required: false
       schema: {type: integer, minimum: 1, maximum: 100, default: 50}
   responses:
+    Unauthorized:
+      description: 凭证缺失、无效、已过期或已撤销
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
     NotFound:
-      description: Conversation, group, or character does not exist
+      description: 资源不存在或对调用者不可见
       content:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}
     IdempotencyConflict:
-      description: Reused client message ID with a different payload
+      description: 同一幂等键被用于不同请求
       content:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}
   schemas:
+    ResourceId:
+      type: string
+      minLength: 1
+      description: 不透明标识，不规定底层数据库键类型。
+    Timestamp:
+      type: string
+      format: date-time
+    Character:
+      type: object
+      description: >-
+        角色注册表的展示元数据。persona_version 指向服务端私有人设版本；
+        L0 角色卡与 L1 世界书分层参考 ADR-0004（提议），不返回原文。
+      required: [id, display_name, persona_version]
+      properties:
+        id: {$ref: '#/components/schemas/ResourceId'}
+        display_name: {type: string, minLength: 1}
+        persona_version: {$ref: '#/components/schemas/ResourceId'}
+    Conversation:
+      type: object
+      description: 单聊为用户与单个角色的稳定会话；小群通过 Membership 管理独立成员。
+      required: [id, type, created_at]
+      properties:
+        id: {$ref: '#/components/schemas/ResourceId'}
+        type: {type: string, enum: [direct, group]}
+        title: {type: string}
+        created_at: {$ref: '#/components/schemas/Timestamp'}
+    GroupCreate:
+      type: object
+      required: [title, character_ids]
+      additionalProperties: false
+      properties:
+        title: {type: string, minLength: 1}
+        character_ids:
+          type: array
+          minItems: 1
+          maxItems: 5
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/ResourceId'}
+    Membership:
+      type: object
+      description: >-
+        一个用户或角色在一个会话中至多有一个有效成员关系。
+        member_type 决定 member_id 所属的身份类型；角色成员编号指向 Character.id。
+      required: [id, conversation_id, member_type, member_id, joined_at]
+      properties:
+        id: {$ref: '#/components/schemas/ResourceId'}
+        conversation_id: {$ref: '#/components/schemas/ResourceId'}
+        member_type: {type: string, enum: [user, character]}
+        member_id: {$ref: '#/components/schemas/ResourceId'}
+        joined_at: {$ref: '#/components/schemas/Timestamp'}
+    DeviceRegistration:
+      type: object
+      required: [display_name, platform]
+      additionalProperties: false
+      properties:
+        display_name: {type: string, minLength: 1}
+        platform: {type: string}
+    Device:
+      type: object
+      description: 客户端缓存身份，不包含推送、模型或第三方服务凭据。
+      required: [id, user_id, display_name, platform, status, created_at]
+      properties:
+        id: {$ref: '#/components/schemas/ResourceId'}
+        user_id: {$ref: '#/components/schemas/ResourceId'}
+        display_name: {type: string}
+        platform: {type: string}
+        status: {type: string, enum: [active, revoked]}
+        created_at: {$ref: '#/components/schemas/Timestamp'}
+    DeviceSession:
+      type: object
+      required: [device, access_token, expires_at]
+      properties:
+        device: {$ref: '#/components/schemas/Device'}
+        access_token:
+          type: string
+          description: 只在签发时返回的短期令牌，用于 Authorization Bearer。
+        expires_at: {$ref: '#/components/schemas/Timestamp'}
+    Delivery:
+      type: object
+      description: >-
+        每个 (device_id, message_id) 对应唯一账本记录。通道推送尝试不改变
+        queued 状态；只有客户端确认持久化后才进入 acknowledged。
+      required: [id, device_id, message_id, status, created_at]
+      properties:
+        id: {$ref: '#/components/schemas/ResourceId'}
+        device_id: {$ref: '#/components/schemas/ResourceId'}
+        message_id: {$ref: '#/components/schemas/ResourceId'}
+        status: {type: string, enum: [queued, acknowledged]}
+        created_at: {$ref: '#/components/schemas/Timestamp'}
+        acknowledged_at: {$ref: '#/components/schemas/Timestamp'}
+      if:
+        properties:
+          status: {const: acknowledged}
+      then:
+        required: [acknowledged_at]
+      else:
+        not:
+          required: [acknowledged_at]
+    DeliveryPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [delivery, message]
+            properties:
+              delivery: {$ref: '#/components/schemas/Delivery'}
+              message: {$ref: '#/components/schemas/Message'}
+              replaced_message_ids:
+                description: 重新生成后须从缓存移除的旧气泡编号，与对应新气泡一起落库再确认。
+                $ref: '#/components/schemas/MessageIds'
+        next_cursor:
+          type: [string, 'null']
+          description: 无后续页时为 null。
+    MemoryEntry:
+      type: object
+      description: >-
+        参考 ADR-0004（提议）。L3 按用户、角色和单聊隔离，L4 仅属用户；
+        L0/L1/L2 和成长暂存不通过本模型读写。
+      required: [id, layer, user_id, content, sources, created_at]
+      properties:
+        id: {$ref: '#/components/schemas/ResourceId'}
+        layer: {type: string, enum: [L3, L4]}
+        user_id: {$ref: '#/components/schemas/ResourceId'}
+        character_id: {$ref: '#/components/schemas/ResourceId'}
+        conversation_id: {$ref: '#/components/schemas/ResourceId'}
+        content: {type: string, minLength: 1}
+        sources:
+          type: array
+          description: 来源锚点，不返回原始对话正文。
+          items:
+            type: object
+            required: [source_id, content_hash]
+            properties:
+              source_id:
+                description: 对话来源使用 Message.id；个人档案可引用用户提交的条目编号。
+                $ref: '#/components/schemas/ResourceId'
+              content_hash: {$ref: '#/components/schemas/ResourceId'}
+        created_at: {$ref: '#/components/schemas/Timestamp'}
+      if:
+        properties:
+          layer: {const: L3}
+      then:
+        required: [character_id, conversation_id]
+        properties:
+          sources: {minItems: 1}
+      else:
+        not:
+          anyOf:
+            - required: [character_id]
+            - required: [conversation_id]
+    ReminderInput:
+      type: object
+      required: [title, due_at]
+      additionalProperties: false
+      properties:
+        title: {type: string, minLength: 1}
+        action: {type: string}
+        due_at: {$ref: '#/components/schemas/Timestamp'}
+    Reminder:
+      type: object
+      description: 结构化提醒事实由用户或服务端角色创建，不从生成文案反推截止时间。
+      required: [id, conversation_id, creator_type, creator_id, title, due_at, status, created_at]
+      properties:
+        id: {$ref: '#/components/schemas/ResourceId'}
+        conversation_id: {$ref: '#/components/schemas/ResourceId'}
+        creator_type: {type: string, enum: [user, character]}
+        creator_id: {$ref: '#/components/schemas/ResourceId'}
+        title: {type: string, minLength: 1}
+        action: {type: string}
+        due_at: {$ref: '#/components/schemas/Timestamp'}
+        status: {type: string, enum: [scheduled, triggered, cancelled]}
+        created_at: {$ref: '#/components/schemas/Timestamp'}
+    PromptTrace:
+      type: object
+      description: >-
+        参考 ADR-0004 §2（提议）。一次装配尝试的脱敏元数据按实际装配顺序排列；
+        不含提示词正文、消息内容、媒体资源地址或供应商配置。
+      additionalProperties: false
+      required: [id, conversation_id, turn_id, blocks, created_at]
+      properties:
+        id: {$ref: '#/components/schemas/ResourceId'}
+        conversation_id: {$ref: '#/components/schemas/ResourceId'}
+        turn_id: {$ref: '#/components/schemas/ResourceId'}
+        blocks:
+          type: array
+          items: {$ref: '#/components/schemas/PromptTraceBlock'}
+        warnings:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [code]
+            properties:
+              code: {type: string}
+              source_index: {type: [integer, 'null'], minimum: 0}
+        created_at: {$ref: '#/components/schemas/Timestamp'}
+    PromptTraceBlock:
+      type: object
+      additionalProperties: false
+      required: [source_type, source_id, content_hash, priority, estimated_tokens]
+      properties:
+        source_type:
+          type: string
+          minLength: 1
+          description: 如 system_protocol、character_card、lorebook、recent_message 或 memory_entry。
+        source_id: {$ref: '#/components/schemas/ResourceId'}
+        content_hash:
+          description: 装配正文的哈希，不含原文；草案不指定哈希编码。
+          $ref: '#/components/schemas/ResourceId'
+        priority: {type: integer}
+        estimated_tokens: {type: integer, minimum: 0}
     DirectMessageRequest:
       type: object
       required: [character_id, content, client_message_id]
       properties:
-        character_id: {type: string}
+        character_id: {$ref: '#/components/schemas/ResourceId'}
         content: {type: string, minLength: 1, maxLength: 20000}
-        client_message_id: {type: string}
+        client_message_id: {$ref: '#/components/schemas/ResourceId'}
     GroupMessageRequest:
       type: object
       required: [content, client_message_id]
       properties:
         content: {type: string, minLength: 1, maxLength: 20000}
-        client_message_id: {type: string}
+        client_message_id: {$ref: '#/components/schemas/ResourceId'}
         max_rounds: {type: integer, minimum: 1, maximum: 3, default: 3}
     Message:
       type: object
-      required: [id, conversation_id, sender_id, role, content, origin, created_at]
+      description: >-
+        一条持久化消息。角色回复按气泡存储，bubble_index 从 0 起在同一轮角色气泡中
+        按输出顺序递增（见 ADR-0006，提议）。消息装配时媒体使用服务端字幕或描述
+        （参考 ADR-0004，提议），不注入媒体地址。
+      required: [id, conversation_id, sender_id, role, type, content, origin, turn_id, created_at]
       properties:
-        id: {type: string}
-        conversation_id: {type: string}
-        sender_id: {type: string}
+        id: {$ref: '#/components/schemas/ResourceId'}
+        conversation_id: {$ref: '#/components/schemas/ResourceId'}
+        sender_id:
+          description: 用户或角色编号，由 role 区分；系统消息使用系统身份编号。
+          $ref: '#/components/schemas/ResourceId'
         role: {type: string, enum: [user, assistant, system]}
-        content: {type: string}
+        type: {type: string, enum: [text, voice, sticker]}
+        content:
+          type: string
+          description: 文本正文；语音或表情使用服务端提供的字幕或描述。
+        media_id:
+          description: 语音或表情的服务端资源编号，不是 URL。
+          $ref: '#/components/schemas/ResourceId'
         origin: {type: string, enum: [single, group, proactive]}
-        turn_id: {type: [string, 'null']}
-        created_at: {type: string, format: date-time}
+        turn_id:
+          type: [string, 'null']
+          description: 单聊或群聊的一轮请求和回复共享编号；没有轮次的消息为 null。
+        bubble_index: {type: integer, minimum: 0}
+        created_at: {$ref: '#/components/schemas/Timestamp'}
+      allOf:
+        - if:
+            properties:
+              type: {enum: [voice, sticker]}
+          then:
+            required: [media_id]
+          else:
+            not:
+              required: [media_id]
+        - if:
+            properties:
+              role: {const: assistant}
+              origin: {enum: [single, group]}
+          then:
+            required: [bubble_index]
+        - if:
+            properties:
+              origin: {enum: [single, group]}
+          then:
+            properties:
+              turn_id: {$ref: '#/components/schemas/ResourceId'}
+    MessageIds:
+      type: array
+      uniqueItems: true
+      items: {$ref: '#/components/schemas/ResourceId'}
     MessageBatch:
       type: object
       required: [messages]
@@ -170,7 +901,24 @@ components:
         messages:
           type: array
           items: {$ref: '#/components/schemas/Message'}
-        next_cursor: {type: [string, 'null']}
+        next_cursor:
+          type: [string, 'null']
+          description: 末条消息后的续传游标；仅空页返回 null。
+    RegeneratedReply:
+      type: object
+      required: [messages, replaced_message_ids]
+      properties:
+        messages:
+          type: array
+          items: {$ref: '#/components/schemas/Message'}
+        replaced_message_ids: {$ref: '#/components/schemas/MessageIds'}
+    MessageStream:
+      type: string
+      description: >-
+        UTF-8 SSE（参考 ADR-0004，提议）。message 事件的 data 是 Message JSON，
+        可逐条展示已生成气泡。流在 done（发送为 MessageBatch JSON，重新生成为
+        RegeneratedReply JSON）或 error（Error JSON）后结束。客户端以 done
+        或随后同步的结果为准，不将中间事件视为整轮已提交。
     DirectorDecision:
       type: object
       required: [round, selected]
@@ -178,7 +926,7 @@ components:
         round: {type: integer, minimum: 1, maximum: 3}
         selected:
           type: string
-          description: Character ID or the literal [SKIP]
+          description: 角色编号，或跳过标记 [SKIP]。
     GroupTurn:
       type: object
       required: [turn_id, decisions, messages]
