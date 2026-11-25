@@ -420,8 +420,10 @@ paths:
         推送仅提供唤醒信号，不包含正文。读取不等于确认；重连可不带游标重新拉取所有未确认项。
         after 只用于继续扫描当前设备的待确认队列，不得把它当作持久化确认。
         按不可变的账本追加顺序续读，不按剩余记录的偏移量分页；确认上一页不跳过下一页。
-        每项 delivery.message_id 等于 message.id。客户端按消息编号幂等落库，并持久化替换标记，
-        避免离线重试让已替换的气泡重新出现。每次重新生成须能淘汰该轮所有更早版本的旧气泡。
+        每项 delivery.message_id 等于 message.id。服务端原子替换整轮；设备以单条投递为事务，
+        不等待凑齐整轮。每个替换气泡都携带该轮所有更早版本的完整旧编号集合：
+        客户端先持久化这些删除标记并移除旧气泡，再按消息编号存入未被标记的新气泡，一起提交后确认。
+        即使 limit=1 或重放旧投递，也不会混入旧版本；新气泡可随补齐逐条显示。
       parameters:
         - $ref: '#/components/parameters/AfterCursor'
         - $ref: '#/components/parameters/Limit'
@@ -886,7 +888,7 @@ components:
                       status: {const: queued}
               message: {$ref: '#/components/schemas/Message'}
               replaced_message_ids:
-                description: 重新生成后须从缓存移除的旧气泡编号，与对应新气泡一起落库再确认。
+                description: 替换投递必带的完整旧编号集合；同一新版本各气泡的集合相同，普通投递省略。
                 $ref: '#/components/schemas/ResourceIds'
         next_cursor:
           type: [string, 'null']
