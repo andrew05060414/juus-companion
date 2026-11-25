@@ -885,24 +885,6 @@ def make_blind_records(results: Sequence[Mapping[str, Any]]) -> tuple[list[dict[
     return blind, mapping
 
 
-def _parse_json_object(text: str) -> dict[str, Any] | None:
-    candidate = text.strip()
-    if candidate.startswith("```"):
-        candidate = re.sub(r"^```(?:json)?\s*|\s*```$", "", candidate, flags=re.IGNORECASE | re.DOTALL)
-    try:
-        parsed = json.loads(candidate)
-        return parsed if isinstance(parsed, dict) else None
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", candidate, flags=re.DOTALL)
-        if not match:
-            return None
-        try:
-            parsed = json.loads(match.group(0))
-            return parsed if isinstance(parsed, dict) else None
-        except json.JSONDecodeError:
-            return None
-
-
 def judge_blind_results(
     provider: Any,
     judge_model: ModelSpec,
@@ -935,7 +917,7 @@ def judge_blind_results(
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        parsed = _parse_json_object(_text(result.get("content")))
+        parsed = regression.parse_json_object(_text(result.get("content")))
         judged.append(
             {
                 "scenario_id": scenario_id,

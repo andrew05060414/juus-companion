@@ -232,6 +232,7 @@ def test_judge_failures_and_wrapped_json_keep_report(monkeypatch, error):
             error,
             {"content": '```json\n{"winner":"B"}\n```', "usage": {"total_tokens": 7}},
             {"content": '我的判断是 {"winner": "tie"}。', "latency_ms": 3},
+            {"content": '[{"winner":"B"}]'},
         ]
     )
 
@@ -245,9 +246,9 @@ def test_judge_failures_and_wrapped_json_keep_report(monkeypatch, error):
                 raise reply
             return reply
 
-    pairs = [(make_case("daily_chat", "在呢。"), make_case("daily_chat", "嗯。"))] * 3
+    pairs = [(make_case("daily_chat", "在呢。"), make_case("daily_chat", "嗯。"))] * 4
     judged = regression.judge_pairs(Provider(), "eval-judge", pairs, chat_eval.load_card(CARD))
-    assert [item["verdict"] for item in judged] == ["无有效结果", "本次", "平手"]
+    assert [item["verdict"] for item in judged] == ["无有效结果", "本次", "平手", "无有效结果"]
     assert judged[0]["error"] == type(error).__name__
     assert judged[1]["usage"] == {"total_tokens": 7}
     assert judged[2]["latency_ms"] == 3

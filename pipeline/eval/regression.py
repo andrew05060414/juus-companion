@@ -201,11 +201,24 @@ def measure(case: Case, card: Case) -> dict[str, float | dict[str, float]]:
     return metrics
 
 
-def _parse_winner(text: str) -> Any:
-    # Judges often wrap the JSON in a code fence or add a sentence around it.
-    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
-    parsed = json.loads(match.group(0) if match else text)
-    return parsed["winner"]
+def parse_json_object(text: str) -> dict[str, Any] | None:
+    candidate = text.strip()
+    if candidate.startswith("```"):
+        candidate = re.sub(
+            r"^```(?:json)?\s*|\s*```$", "", candidate, flags=re.IGNORECASE | re.DOTALL
+        )
+    try:
+        parsed = json.loads(candidate)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", candidate, flags=re.DOTALL)
+        if not match:
+            return None
+        try:
+            parsed = json.loads(match.group(0))
+            return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError:
+            return None
 
 
 def judge_pairs(
@@ -258,7 +271,7 @@ def judge_pairs(
             record["raw"] = raw
             record["latency_ms"] = result.get("latency_ms")
             record["usage"] = result.get("usage", {})
-            winner = _parse_winner(raw)
+            winner = (parse_json_object(raw) or {}).get("winner") if isinstance(raw, str) else None
             record["verdict"] = order.get(winner, "平手" if winner == "tie" else "无有效结果")
         except (OSError, HTTPException, RuntimeError, ValueError, TypeError, KeyError) as exc:
             # A failed or timed-out judge call must not discard the generated replies.
