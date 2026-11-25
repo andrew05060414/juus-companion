@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Juus Companion Brain API
-  version: 0.2.1-draft
+  version: 0.2.2-draft
   description: >-
     M1-01 独立大脑服务接口草案（ADR-0003，已接受），最后更新：2026-11-25。
     ADR-0004 仍为提议，相关字段和操作已单独标注。/v1 是目标路径，不代表草案已冻结；
@@ -879,8 +879,9 @@ components:
           type: array
           items:
             type: object
-            required: [delivery, message]
+            required: [change_type, delivery, message]
             properties:
+              change_type: {type: string, enum: [append, replace]}
               delivery:
                 allOf:
                   - $ref: '#/components/schemas/Delivery'
@@ -889,7 +890,15 @@ components:
               message: {$ref: '#/components/schemas/Message'}
               replaced_message_ids:
                 description: 替换投递必带的完整旧编号集合；同一新版本各气泡的集合相同，普通投递省略。
-                $ref: '#/components/schemas/ResourceIds'
+                $ref: '#/components/schemas/ReplacedMessageIds'
+            if:
+              properties:
+                change_type: {const: replace}
+            then:
+              required: [replaced_message_ids]
+            else:
+              not:
+                required: [replaced_message_ids]
         next_cursor:
           type: [string, 'null']
           minLength: 1
@@ -1062,6 +1071,9 @@ components:
       type: array
       uniqueItems: true
       items: {$ref: '#/components/schemas/ResourceId'}
+    ReplacedMessageIds:
+      $ref: '#/components/schemas/ResourceIds'
+      minItems: 1
     MessageBatch:
       type: object
       required: [messages]
@@ -1095,8 +1107,9 @@ components:
       properties:
         messages:
           type: array
+          minItems: 1
           items: {$ref: '#/components/schemas/Message'}
-        replaced_message_ids: {$ref: '#/components/schemas/ResourceIds'}
+        replaced_message_ids: {$ref: '#/components/schemas/ReplacedMessageIds'}
     MessageStream:
       type: string
       description: >-

@@ -99,7 +99,10 @@ def test_sync_and_ack_have_distinct_states(contract, document, message):
     acknowledged = queued | {"status": "acknowledged", "acknowledged_at": NOW}
 
     def batch(row):
-        return {"items": [{"delivery": row, "message": message}], "next_cursor": None}
+        return {
+            "items": [{"change_type": "append", "delivery": row, "message": message}],
+            "next_cursor": None,
+        }
 
     page.validate(batch(queued))
     ack.validate(acknowledged)
@@ -107,6 +110,26 @@ def test_sync_and_ack_have_distinct_states(contract, document, message):
     assert not page.is_valid(batch(queued | {"acknowledged_at": None}))
     assert not ack.is_valid(queued)
     assert not ack.is_valid(queued | {"status": "acknowledged"})
+
+
+@pytest.mark.parametrize(("index", "cursor"), [(0, "more"), (1, None)])
+def test_each_single_item_replacement_page_carries_tombstones(
+    contract, document, message, index, cursor
+):
+    page = contract(response(document, "/v1/devices/{device_id}/deliveries", "get", "200"))
+    msg = message | {"id": f"new-{index}", "bubble_index": index}
+    row = dict(
+        id=f"d-{index}", device_id="dev", message_id=msg["id"], status="queued", created_at=NOW
+    )
+    item = {"change_type": "replace", "delivery": row, "message": msg}
+
+    def batch(fields):
+        return {"items": [item | fields], "next_cursor": cursor}
+
+    page.validate(batch({"replaced_message_ids": ["old-1", "old-2"]}))
+    assert not page.is_valid(batch({}))
+    assert not page.is_valid(batch({"replaced_message_ids": []}))
+    assert not page.is_valid(batch({"change_type": "append", "replaced_message_ids": ["old-1"]}))
 
 
 def test_registry_review_is_versioned_and_private(contract):
