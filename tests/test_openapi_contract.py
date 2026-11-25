@@ -132,6 +132,15 @@ def test_each_single_item_replacement_page_carries_tombstones(
     assert not page.is_valid(batch({"change_type": "append", "replaced_message_ids": ["old-1"]}))
 
 
+def test_successful_regeneration_replaces_at_least_one_bubble(contract, document, message):
+    path = "/v1/conversations/{conversation_id}/turns/{turn_id}/regenerate"
+    regenerated = contract(response(document, path, "post", "200"))
+    result = {"messages": [message], "replaced_message_ids": ["old"]}
+    regenerated.validate(result)
+    assert not regenerated.is_valid(result | {"messages": []})
+    assert not regenerated.is_valid(result | {"replaced_message_ids": []})
+
+
 def test_registry_review_is_versioned_and_private(contract):
     overlay = contract("CharacterRegistryOverlay")
     key = {"character_id": "char-1", "persona_version": "version-1"}
