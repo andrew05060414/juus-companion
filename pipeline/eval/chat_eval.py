@@ -477,6 +477,35 @@ def normalize_usage(raw: Mapping[str, Any] | None, *, request_text: str, respons
     }
 
 
+def usage_is_reported(raw: Mapping[str, Any] | None) -> bool:
+    """False when normalize_usage would have to estimate a token count."""
+    raw = raw or {}
+    return all(
+        isinstance(raw.get(key, raw.get(alias)), (int, float))
+        for key, alias in (("prompt_tokens", "prompt_eval_count"), ("completion_tokens", "eval_count"))
+    )
+
+
+class EmptyContentError(RuntimeError):
+    """An answered call without usable text; keeps the usage the gateway billed."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        raw_usage: Mapping[str, Any] | None,
+        request_text: str,
+        latency_ms: float,
+    ):
+        super().__init__(message)
+        self.usage = (
+            normalize_usage(raw_usage, request_text=request_text, response_text="")
+            if usage_is_reported(raw_usage)
+            else None
+        )
+        self.latency_ms = latency_ms
+
+
 def calculate_cost(usage: Mapping[str, int], model: ModelSpec) -> float | None:
     if model.input_usd_per_million is None or model.output_usd_per_million is None:
         return None
@@ -537,16 +566,20 @@ class OpenAICompatibleProvider:
         if not choices:
             raise RuntimeError(f"模型网关响应缺少 choices：{json.dumps(raw)[:800]}")
         text = _content_from_choice(choices[0])
-        if not text.strip():
-            raise RuntimeError(
-                "模型网关返回空 content；思考模型可能耗尽了 max_tokens。"
-                "请提高 --max-tokens，或按供应商文档传 --extra-body-json '{\"think\":false}'。"
-            )
         request_text = json.dumps(messages, ensure_ascii=False)
+        if not text.strip():
+            raise EmptyContentError(
+                "模型网关返回空 content；思考模型可能耗尽了 max_tokens。"
+                "请提高 --max-tokens，或按供应商文档传 --extra-body-json '{\"think\":false}'。",
+                raw_usage=raw.get("usage"),
+                request_text=request_text,
+                latency_ms=round(elapsed_ms, 2),
+            )
         usage = normalize_usage(raw.get("usage"), request_text=request_text, response_text=text)
         return {
             "content": text,
             "usage": usage,
+            "usage_estimated": not usage_is_reported(raw.get("usage")),
             "latency_ms": round(elapsed_ms, 2),
             "raw_finish_reason": choices[0].get("finish_reason"),
         }
@@ -614,13 +647,19 @@ class OllamaNativeProvider:
         elapsed_ms = (time.perf_counter() - started) * 1000
         message = raw.get("message") or {}
         text = _text(message.get("content"))
-        if not text.strip():
-            raise RuntimeError("Ollama 返回空 message.content")
         request_text = json.dumps(messages, ensure_ascii=False)
+        if not text.strip():
+            raise EmptyContentError(
+                "Ollama 返回空 message.content",
+                raw_usage=raw,
+                request_text=request_text,
+                latency_ms=round(elapsed_ms, 2),
+            )
         usage = normalize_usage(raw, request_text=request_text, response_text=text)
         return {
             "content": text,
             "usage": usage,
+            "usage_estimated": not usage_is_reported(raw),
             "latency_ms": round(elapsed_ms, 2),
             "raw_finish_reason": raw.get("done_reason"),
         }
@@ -1141,7 +1180,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             judged = regression.judge_pairs(provider, args.judge_model, pairs, card)
             for record in judged:
                 usage = record["usage"]
-                cost = calculate_cost(usage, judge_spec) if usage else None
+                # Estimated token counts are recorded but never priced.
+                priced = usage and not record.get("usage_estimated")
+                cost = calculate_cost(usage, judge_spec) if priced else None
                 record["cost_usd"] = cost
                 judge_costs.append(cost)
         regression.write_report(args.out_dir / "regression.md", pairs, card, thresholds, judged)

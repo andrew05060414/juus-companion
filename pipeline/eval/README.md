@@ -94,4 +94,4 @@ uv run python pipeline/eval/chat_eval.py --offline-fixture \
 
 本地实测沿用上面的 live 花费确认和调用数上限；可选 `--judge-model eval-judge`（或部署配置中该路由对应的模型 ID）。每个场景和方案的旧、新回复随机标成 A/B，裁判只能给出参考偏好；裁判会收到卡上配置的称呼和口癖；回复包在代码块里或带说明文字也能解析。无效回复或请求失败只记为「无有效结果」，不会中断运行或改变确定性标红。红项和裁判意见都不自动决定通过或失败，最终由 Andrew 阅读报告后决定。真实卡、样本与所有运行产物只留本地 `data/`，PR 仅贴统计和脱敏样例。
 
-成对裁判的错误类型、延迟、token 用量和费用记录在 `judge.private.jsonl`；费用和用量计入本次 `run.json` 的汇总，不重复计入旧基线的费用。可用 `--model-price eval-judge=输入单价:输出单价` 指定裁判单价；任何纳入本次汇总的调用缺用量或单价时，`external_cost_usd` 为 `null`，`recorded_total_tokens` 仍累加已记录的用量。
+成对裁判的错误类型、延迟、token 用量和费用记录在 `judge.private.jsonl`；费用和用量计入本次 `run.json` 的汇总，不重复计入旧基线的费用。可用 `--model-price eval-judge=输入单价:输出单价` 指定裁判单价；任何纳入本次汇总的调用缺用量或单价时，`external_cost_usd` 为 `null`，`recorded_total_tokens` 仍累加已记录的用量。网关没有返回完整 token 数时，裁判用量按估算值记录并标记 `usage_estimated`，不据此计费（费用为 `null`）；裁判正文为空但网关报了用量时，该用量和费用照常计入，裁决记为“无有效结果”。裁决只认回复里顶层 JSON 对象的 `winner`（A、B 或 tie），出现多个互相矛盾的裁决、数组或嵌套对象里的 `winner` 都记为“无有效结果”。

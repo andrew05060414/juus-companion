@@ -289,6 +289,7 @@ def test_judge_parser_rejects_json_array():
         (["--model-price", "eval-judge=3:4"], False, 0.00025),
         ([], False, None),
         (["--model-price", "eval-judge=3:4"], True, None),
+        (["--model-price", "eval-judge=3:4"], "estimated", None),
     ],
 )
 def test_pairwise_judge_cost_is_included_in_run(
@@ -300,7 +301,7 @@ def test_pairwise_judge_cost_is_included_in_run(
 
         def chat(self, *, model, **kwargs):
             if model == "eval-judge":
-                if timeout:
+                if timeout is True:
                     raise TimeoutError("read timed out")
                 content, prompt, completion = "不是 JSON", 60, 10
             else:
@@ -312,6 +313,7 @@ def test_pairwise_judge_cost_is_included_in_run(
                     "completion_tokens": completion,
                     "total_tokens": prompt + completion,
                 },
+                "usage_estimated": model == "eval-judge" and timeout == "estimated",
             }
 
     monkeypatch.setattr(chat_eval, "OpenAICompatibleProvider", Provider)
@@ -356,8 +358,65 @@ def test_pairwise_judge_cost_is_included_in_run(
     run = json.loads((current / "run.json").read_text(encoding="utf-8"))
     assert record["verdict"] == "无有效结果"
     assert record["usage"] == (
-        None if timeout else {"prompt_tokens": 60, "completion_tokens": 10, "total_tokens": 70}
+        None
+        if timeout is True
+        else {"prompt_tokens": 60, "completion_tokens": 10, "total_tokens": 70}
     )
     assert record["cost_usd"] == (pytest.approx(0.00022) if expected_cost else None)
-    assert run["recorded_total_tokens"] == (25 if timeout else 95)
+    assert run["recorded_total_tokens"] == (25 if timeout is True else 95)
     assert run["external_cost_usd"] == expected_cost
+
+
+@pytest.mark.parametrize(
+    ("reply", "winner"),
+    [
+        ('先看 {"tone": "自然"}，结论 {"winner": "B"}', "B"),
+        ('{"detail": {"winner": "A"}}', None),
+        ('{"winner": "A"} 也可能是 {"winner": "B"}', None),
+        ('{"winner": "C"}', None),
+        ('{"winner": ["A"]}', None),
+        ('[{"winner": "A"}]', None),
+        (None, None),
+    ],
+)
+def test_judge_winner_requires_one_top_level_verdict(reply, winner):
+    assert regression.parse_winner(reply) == winner
+
+
+def _gateway(monkeypatch, payload):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps(payload).encode("utf-8")
+
+    monkeypatch.setattr(chat_eval.urllib.request, "urlopen", lambda *args, **kwargs: Response())
+    return chat_eval.OpenAICompatibleProvider("http://localhost", "")
+
+
+def _judge_one(provider):
+    pairs = [(make_case("daily_chat", "在呢。"), make_case("daily_chat", "嗯。"))]
+    return regression.judge_pairs(provider, "eval-judge", pairs, chat_eval.load_card(CARD))[0]
+
+
+def test_empty_judge_reply_keeps_reported_usage(monkeypatch):
+    usage = {"prompt_tokens": 60, "completion_tokens": 200, "total_tokens": 260}
+    provider = _gateway(monkeypatch, {"choices": [{"message": {"content": ""}}], "usage": usage})
+    record = _judge_one(provider)
+    assert record["verdict"] == "无有效结果"
+    assert record["error"] == "EmptyContentError"
+    assert record["usage"] == usage
+    assert record["latency_ms"] is not None
+
+
+def test_estimated_judge_usage_is_flagged(monkeypatch):
+    provider = _gateway(monkeypatch, {"choices": [{"message": {"content": '{"winner":"A"}'}}]})
+    record = _judge_one(provider)
+    assert record["usage"]["total_tokens"] > 0
+    assert record["usage_estimated"] is True
+    provider = _gateway(monkeypatch, {"choices": [{"message": {"content": ""}}]})
+    assert _judge_one(provider)["usage"] is None

@@ -10,7 +10,7 @@ import re
 from collections import Counter
 from http.client import HTTPException
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Iterator, Mapping, Sequence
 
 
 MINOR_REFUSAL = "这类成人亲密话题不适合继续。我们聊点别的吧。"
@@ -201,7 +201,8 @@ def measure(case: Case, card: Case) -> dict[str, float | dict[str, float]]:
     return metrics
 
 
-def parse_json_object(text: str) -> dict[str, Any] | None:
+def iter_json_objects(text: str) -> Iterator[dict[str, Any]]:
+    """Yield top-level JSON objects embedded in a model reply, skipping literal braces."""
     candidate = text.strip()
     if candidate.startswith("```"):
         candidate = re.sub(
@@ -209,18 +210,38 @@ def parse_json_object(text: str) -> dict[str, Any] | None:
         )
     try:
         parsed = json.loads(candidate)
-        return parsed if isinstance(parsed, dict) else None
     except json.JSONDecodeError:
         pass
+    else:
+        if isinstance(parsed, dict):
+            yield parsed
+        return
     decoder = json.JSONDecoder()
-    for match in re.finditer(r"\{", candidate):
+    position = 0
+    while (start := candidate.find("{", position)) != -1:
         try:
-            parsed, _ = decoder.raw_decode(candidate, match.start())
+            parsed, position = decoder.raw_decode(candidate, start)
         except json.JSONDecodeError:
+            position = start + 1
             continue
         if isinstance(parsed, dict):
-            return parsed
-    return None
+            yield parsed
+
+
+def parse_json_object(text: str) -> dict[str, Any] | None:
+    return next(iter_json_objects(text), None)
+
+
+def parse_winner(text: Any) -> str | None:
+    """Return the verdict only when exactly one distinct valid winner is stated."""
+    if not isinstance(text, str):
+        return None
+    winners = {
+        item["winner"]
+        for item in iter_json_objects(text)
+        if isinstance(item.get("winner"), str) and item["winner"] in ("A", "B", "tie")
+    }
+    return winners.pop() if len(winners) == 1 else None
 
 
 def judge_pairs(
@@ -279,11 +300,16 @@ def judge_pairs(
             record["raw"] = raw
             record["latency_ms"] = result.get("latency_ms")
             record["usage"] = result.get("usage", {})
-            winner = (parse_json_object(raw) or {}).get("winner") if isinstance(raw, str) else None
+            record["usage_estimated"] = bool(result.get("usage_estimated"))
+            winner = parse_winner(raw)
             record["verdict"] = order.get(winner, "平手" if winner == "tie" else "无有效结果")
         except (OSError, HTTPException, RuntimeError, ValueError, TypeError, KeyError) as exc:
             # A failed or timed-out judge call must not discard the generated replies.
             record["error"] = type(exc).__name__
+            # An empty reply is still billed; keep the usage the gateway reported.
+            record["usage"] = getattr(exc, "usage", None)
+            if (latency := getattr(exc, "latency_ms", None)) is not None:
+                record["latency_ms"] = latency
             record["verdict"] = "无有效结果"
         judged.append(record)
     return judged
