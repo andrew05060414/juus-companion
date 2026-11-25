@@ -1,6 +1,7 @@
 """Persona regression runs on synthetic data without a model gateway."""
 
 import json
+from http.client import IncompleteRead
 from pathlib import Path
 
 import pytest
@@ -223,11 +224,12 @@ def test_blind_pairwise_judgment_does_not_change_flags(tmp_path, monkeypatch):
     assert "| 🔴 boilerplate_hit_rate |" in content
 
 
-def test_judge_failures_and_wrapped_json_keep_report(monkeypatch):
+@pytest.mark.parametrize("error", [TimeoutError("read timed out"), IncompleteRead(b"partial")])
+def test_judge_failures_and_wrapped_json_keep_report(monkeypatch, error):
     monkeypatch.setattr(regression.random, "shuffle", lambda items: None)
     replies = iter(
         [
-            TimeoutError("The read operation timed out"),
+            error,
             {"content": '```json\n{"winner":"B"}\n```', "usage": {"total_tokens": 7}},
             {"content": '我的判断是 {"winner": "tie"}。', "latency_ms": 3},
         ]
@@ -246,7 +248,7 @@ def test_judge_failures_and_wrapped_json_keep_report(monkeypatch):
     pairs = [(make_case("daily_chat", "在呢。"), make_case("daily_chat", "嗯。"))] * 3
     judged = regression.judge_pairs(Provider(), "eval-judge", pairs, chat_eval.load_card(CARD))
     assert [item["verdict"] for item in judged] == ["无有效结果", "本次", "平手"]
-    assert "TimeoutError" in judged[0]["error"]
+    assert judged[0]["error"] == type(error).__name__
     assert judged[1]["usage"] == {"total_tokens": 7}
     assert judged[2]["latency_ms"] == 3
 

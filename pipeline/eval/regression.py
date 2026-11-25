@@ -8,6 +8,7 @@ import math
 import random
 import re
 from collections import Counter
+from http.client import HTTPException
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -259,9 +260,9 @@ def judge_pairs(
             record["usage"] = result.get("usage", {})
             winner = _parse_winner(raw)
             record["verdict"] = order.get(winner, "平手" if winner == "tie" else "无有效结果")
-        except (OSError, RuntimeError, ValueError, TypeError, KeyError) as exc:
+        except (OSError, HTTPException, RuntimeError, ValueError, TypeError, KeyError) as exc:
             # A failed or timed-out judge call must not discard the generated replies.
-            record.setdefault("error", f"{type(exc).__name__}: {exc}"[:300])
+            record["error"] = type(exc).__name__
             record["verdict"] = "无有效结果"
         judged.append(record)
     return judged
