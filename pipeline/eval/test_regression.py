@@ -221,3 +221,51 @@ def test_blind_pairwise_judgment_does_not_change_flags(tmp_path, monkeypatch):
     content = report.read_text(encoding="utf-8")
     assert "成对裁判（仅供参考）：本次" in content
     assert "| 🔴 boilerplate_hit_rate |" in content
+
+
+def test_judge_failures_and_wrapped_json_keep_report(monkeypatch):
+    monkeypatch.setattr(regression.random, "shuffle", lambda items: None)
+    replies = iter(
+        [
+            TimeoutError("The read operation timed out"),
+            {"content": '```json\n{"winner":"B"}\n```', "usage": {"total_tokens": 7}},
+            {"content": '我的判断是 {"winner": "tie"}。', "latency_ms": 3},
+        ]
+    )
+
+    class Provider:
+        def chat(self, *, messages, **kwargs):
+            data = json.loads(messages[1]["content"])
+            assert data["角色"]["用户称呼"] == "巡灯员"
+            assert data["角色"]["口癖"] == ["且慢些"]
+            reply = next(replies)
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+
+    pairs = [(make_case("daily_chat", "在呢。"), make_case("daily_chat", "嗯。"))] * 3
+    judged = regression.judge_pairs(Provider(), "eval-judge", pairs, chat_eval.load_card(CARD))
+    assert [item["verdict"] for item in judged] == ["无有效结果", "本次", "平手"]
+    assert "TimeoutError" in judged[0]["error"]
+    assert judged[1]["usage"] == {"total_tokens": 7}
+    assert judged[2]["latency_ms"] == 3
+
+
+def test_baseline_reply_with_unicode_line_separators(offline_run, monkeypatch):
+    original = chat_eval.FixtureProvider.chat
+
+    def chat(self, **kwargs):
+        result = original(self, **kwargs)
+        return {**result, "content": result["content"] + "\u2028\u2029\x85尾句"}
+
+    monkeypatch.setattr(chat_eval.FixtureProvider, "chat", chat)
+    baseline = offline_run("baseline")
+    current = offline_run("current", "--baseline", str(baseline))
+    assert (current / "regression.md").exists()
+
+
+def test_overlapping_catchphrase_variants_count_once():
+    card = {"catchphrases": ["且慢些", "且慢些再走"]}
+    metrics = regression.measure(make_case("catchphrase", "且慢些再走。", "且慢些，且慢些。"), card)
+    assert metrics["catchphrase_hit_rate"] == 1.0
+    assert metrics["catchphrase_repeat_rate"] == 0.5

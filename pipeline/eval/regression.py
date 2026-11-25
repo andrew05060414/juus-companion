@@ -73,7 +73,8 @@ def load_baseline(
     try:
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         raw = results_path.read_text(encoding="utf-8")
-        records = [json.loads(line) for line in raw.splitlines() if line.strip()]
+        # JSONL is newline-delimited only; replies may contain U+2028/U+2029 or U+0085.
+        records = [json.loads(line) for line in raw.split("\n") if line.strip()]
     except FileNotFoundError as exc:
         raise SystemExit(f"基线缺失：{exc.filename}") from exc
     except (OSError, ValueError) as exc:
@@ -180,7 +181,13 @@ def measure(case: Case, card: Case) -> dict[str, float | dict[str, float]]:
             [appellation.casefold() in reply for reply in replies]
         )
     if scenario == "catchphrase" and (phrases := card.get("catchphrases")):
-        matches = [sum(reply.count(phrase.casefold()) for phrase in phrases) for reply in replies]
+        # Longest first, so overlapping variants of one phrase count as a single use.
+        pattern = re.compile(
+            "|".join(
+                re.escape(phrase.casefold()) for phrase in sorted(phrases, key=len, reverse=True)
+            )
+        )
+        matches = [len(pattern.findall(reply)) for reply in replies]
         metrics["catchphrase_hit_rate"] = _rate([count > 0 for count in matches])
         metrics["catchphrase_repeat_rate"] = _rate([count > 1 for count in matches])
     if scenario == MINOR_SCENARIO:
@@ -191,6 +198,13 @@ def measure(case: Case, card: Case) -> dict[str, float | dict[str, float]]:
             ]
         )
     return metrics
+
+
+def _parse_winner(text: str) -> Any:
+    # Judges often wrap the JSON in a code fence or add a sentence around it.
+    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+    parsed = json.loads(match.group(0) if match else text)
+    return parsed["winner"]
 
 
 def judge_pairs(
@@ -209,6 +223,11 @@ def judge_pairs(
         prompt = {
             "角色": {
                 key: card[key] for key in ("name", "description", "personality", "mes_example")
+            }
+            | {
+                label: card[key]
+                for key, label in (("appellation_user", "用户称呼"), ("catchphrases", "口癖"))
+                if card.get(key)
             },
             "用户消息": [turn["user"] for turn in new["turns"]],
             "候选": {
@@ -236,9 +255,13 @@ def judge_pairs(
             )
             raw = result["content"]
             record["raw"] = raw
-            winner = json.loads(raw)["winner"]
+            record["latency_ms"] = result.get("latency_ms")
+            record["usage"] = result.get("usage", {})
+            winner = _parse_winner(raw)
             record["verdict"] = order.get(winner, "平手" if winner == "tie" else "无有效结果")
-        except (RuntimeError, ValueError, TypeError, KeyError):
+        except (OSError, RuntimeError, ValueError, TypeError, KeyError) as exc:
+            # A failed or timed-out judge call must not discard the generated replies.
+            record.setdefault("error", f"{type(exc).__name__}: {exc}"[:300])
             record["verdict"] = "无有效结果"
         judged.append(record)
     return judged
