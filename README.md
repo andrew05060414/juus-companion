@@ -2,7 +2,7 @@
 
 [English Documentation](README_EN.md) ｜ [中文说明](README.md)
 
-> 创建日期：2026-09-27 ｜ 最后更新：2026-10-16 ｜ 版本：v0.2（M6 开源发布就绪）
+> 创建日期：2026-09-27 ｜ 最后更新：2026-11-27 ｜ 版本：v0.3（本地单聊原型纠偏）
 
 一个“会主动找你聊天”的碧蓝航线同人陪伴 AI：每位舰娘都是独立的聊天成员，可以单聊，也可以几个人在小群里像游戏里的「啾信」一样自然交流；她们会按自己的节奏发消息、发 JUUs 动态、提醒你的日程，通知必达，历史可查。
 
@@ -30,6 +30,7 @@
   - [路线图与里程碑](docs/ROADMAP.md)
   - [数据、隐私与开源政策](docs/DATA_POLICY.md)
   - [技术决策记录 ADR](docs/decisions/)（ADR-0003 大脑形态已定稿：A 独立服务为主线）
+  - [3 位主力角色本地单聊原型](docs/native-chat-prototype.md)
 - **开源发布与部署**：
   - [全量发布审计报告 (M6)](docs/release-audit-report.md)
   - [自部署指南 (NAS / Docker Compose)](deploy/README.md)
@@ -43,7 +44,7 @@
 | 目录 | 模块内容 | 许可证 | 状态 |
 |---|---|:---:|:---:|
 | `server/` | 啾信大脑：角色注册表、会话、群聊导演、主动调度、投递账本、推送 | AGPL-3.0 | 架构与接口已定稿，骨架就绪 |
-| `pipeline/` | 人设流水线：从公开解包数据抽取并生成 SillyTavern / AstrBot 角色卡 | AGPL-3.0 | 已实现 v1，本地运行 |
+| `pipeline/` | 人设流水线底座：注册表、抽取、质检与导出器 | AGPL-3.0 | 批量酒馆角色卡运行入口已冻结 |
 | `deploy/` | 开源自部署：Docker Compose 模板、环境变量配置、ntfy 必达推送 | AGPL-3.0 | 模板与指南完备 |
 | `adapters/` | 外部适配层：AstrBot 插件、Chronicle 记忆系统集成 | AGPL-3.0 | 规划中 |
 | `app-android/` | Android 原生客户端（fork 自 [oneroomlife/blyy](https://github.com/oneroomlife/blyy)） | GPL-3.0 | 源码审计完成，待集成接入 |
@@ -68,6 +69,14 @@ cp .env.example .env
 ```
 
 编辑 `.env`，配置本地大模型网关地址与 API 密钥。
+
+### 本地试聊 3 位主力角色
+
+```powershell
+.\start-native-chat.ps1
+```
+
+该原型只覆盖贝尔法斯特、企业、胡滕 3 位角色，验证去酒馆腔后的微信式短气泡单聊与双模型对照。配置、冻结边界和验证命令见 [docs/native-chat-prototype.md](docs/native-chat-prototype.md)。
 
 ### 自动化测试与开源守卫门禁
 
@@ -94,7 +103,7 @@ uv run python tools/audit_release.py
 
 ## 人设数据流水线（Pipeline）
 
-人设流水线用于在本地将公开解包文本转化为 SillyTavern 角色卡与世界书。所有游戏原文素材与生成的私有人设卡均保存在本地 `data/`（已被 `.gitignore` 忽略），严格遵守数据红线。
+人设流水线保留注册表、抽取、质检和导出底座；批量 SillyTavern 角色卡生成入口已按 2026-11-26 纠偏冻结，不再是当前推进方向。所有游戏原文素材与生成的私有人设卡均保存在本地 `data/`（已被 `.gitignore` 忽略），严格遵守数据红线。
 
 ```sh
 # 运行流水线
