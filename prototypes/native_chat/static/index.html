@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>啾信本地试聊原型</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">啾</div>
+        <div>
+          <h1>啾信</h1>
+          <p>去酒馆腔单聊原型</p>
+        </div>
+      </div>
+      <section>
+        <h2>角色</h2>
+        <div id="persona-list" class="persona-list"></div>
+      </section>
+      <section>
+        <h2>模型</h2>
+        <div id="model-list" class="model-list"></div>
+      </section>
+      <section class="context-card">
+        <div class="context-head">
+          <h2>日常上下文</h2>
+          <label class="switch"><input id="context-toggle" type="checkbox"><span></span></label>
+        </div>
+        <dl id="context-slots"></dl>
+        <p class="hint">只读注入；模型不会修改这些槽位。</p>
+      </section>
+    </aside>
+
+    <section class="phone-wrap">
+      <div class="phone">
+        <header class="chat-header">
+          <div>
+            <strong id="chat-title">请选择角色</strong>
+            <span id="chat-subtitle"></span>
+          </div>
+          <div class="status-dot"></div>
+        </header>
+        <div id="timeline" class="timeline"></div>
+        <form id="composer" class="composer">
+          <button type="button" id="compare-button" class="compare-button" title="用两个模型分别回答">对比</button>
+          <input id="message-input" autocomplete="off" placeholder="发一句日常的话…">
+          <button type="submit">发送</button>
+        </form>
+      </div>
+      <div id="compare-panel" class="compare-panel hidden">
+        <div class="compare-title">
+          <strong>双模型对照</strong>
+          <button id="close-compare" type="button">收起</button>
+        </div>
+        <div id="compare-results" class="compare-results"></div>
+      </div>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -2,7 +2,7 @@
 
 [English Documentation](README_EN.md) ｜ [中文说明](README.md)
 
-> Created: 2026-09-27 ｜ Last Updated: 2026-10-16 ｜ Version: v0.2 (M6 Release Ready)
+> Created: 2026-09-27 ｜ Last Updated: 2026-11-27 ｜ Version: v0.3 (Native Chat Prototype Correction)
 
 An AI-powered Azur Lane fan companion that **actively messages you**: each shipgirl acts as an independent conversation member. You can chat one-on-one or engage in small group chats mirroring in-game "JUUs" dynamics; they initiate messages according to their personalities, post on their JUUs social feed, and remind you of daily tasks with guaranteed notification delivery.
 
@@ -30,6 +30,7 @@ An AI-powered Azur Lane fan companion that **actively messages you**: each shipg
   - [Roadmap & Milestones](docs/ROADMAP.md)
   - [Data, Privacy & Open Source Policy](docs/DATA_POLICY.md)
   - [Decisions (ADR)](docs/decisions/) (ADR-0003 Accepted: Standalone Brain Service as long-term core)
+  - [Three-character native local chat prototype](docs/native-chat-prototype.md)
 - **Deployment & Release**:
   - [M6 Full Release Audit Report](docs/release-audit-report.md)
   - [Self-Hosting Deployment Guide](deploy/README.md)
@@ -43,7 +44,7 @@ An AI-powered Azur Lane fan companion that **actively messages you**: each shipg
 | Directory | Module Description | License | Status |
 |---|---|:---:|:---:|
 | `server/` | Juus Brain service: persona registry, sessions, director, proactive scheduler, delivery ledger | AGPL-3.0 | Core contracts & API draft complete |
-| `pipeline/` | Data pipeline: extracts unpacked game configs and compiles SillyTavern / AstrBot cards locally | AGPL-3.0 | v1 pipeline implemented |
+| `pipeline/` | Persona pipeline foundation: registry, extraction, validation, and exporters | AGPL-3.0 | End-to-end tavern-card entrypoints frozen |
 | `deploy/` | Self-hosting templates: Docker Compose, environment templates, ntfy push server | AGPL-3.0 | Template ready |
 | `adapters/` | External adapters: AstrBot integration, Chronicle personal memory connector | AGPL-3.0 | Planned |
 | `app-android/` | Android client (forked from [oneroomlife/blyy](https://github.com/oneroomlife/blyy)) | GPL-3.0 | Source audited, awaiting integration |
@@ -69,6 +70,14 @@ cp .env.example .env
 
 Configure your local model gateway endpoint and API key in `.env`.
 
+### Try the three-character native chat prototype
+
+```powershell
+.\start-native-chat.ps1
+```
+
+This local-only prototype covers Belfast, Enterprise, and Ulrich von Hutten. It verifies short mobile-message bubbles and dual-model comparison after the de-tavern correction. See [docs/native-chat-prototype.md](docs/native-chat-prototype.md).
+
 ### Verification & Quality Gates
 
 Run the local checks required by CI before submitting:
@@ -92,11 +101,13 @@ uv run python tools/audit_release.py
 
 ## Persona Data Pipeline
 
-The pipeline generates SillyTavern persona cards and lorebooks on your local machine. All extracted texts and generated persona cards remain inside the gitignored `data/` folder, ensuring zero copyright infringement in source control:
+The pipeline keeps its registry, extraction, validation, and exporter foundation. End-to-end SillyTavern persona-card generation entrypoints were frozen after the 2026-11-26 correction and are no longer the current product direction. All extracted texts and generated persona cards remain inside the gitignored `data/` folder, ensuring zero copyright infringement in source control:
 
 ```sh
-uv run python pipeline/run.py
+# The end-to-end persona-card generation entrypoint is frozen; do not run uv run python pipeline/run.py.
+# Set JUUS_ALLOW_LEGACY_TAVERN_BATCH=1 only when explicitly re-reviewing the legacy pipeline.
 
+# Run pipeline-focused tests for the retained registry, extraction, validation, and exporter foundation
 uv run pytest tests/test_batch.py tests/test_e2e_pipeline.py tests/test_exporter.py tests/test_extractor.py tests/test_fetcher.py tests/test_generator.py tests/test_validator.py
 ```
 

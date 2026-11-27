@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -34,6 +35,16 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("pipeline")
+
+BATCH_TAVERN_PIPELINE_FREEZE_MESSAGE = (
+    "批量 SillyTavern 角色卡管线已按 2026-11-26 纠偏冻结；"
+    "请使用 3 位主力角色的 native_chat 本地原型。"
+    "只有明确复审旧管线时才设 JUUS_ALLOW_LEGACY_TAVERN_BATCH=1。"
+)
+
+
+def legacy_batch_allowed() -> bool:
+    return os.getenv("JUUS_ALLOW_LEGACY_TAVERN_BATCH") == "1"
 
 
 def is_exported(output_dir: Path, astrbot_id: str) -> bool:
@@ -128,6 +139,9 @@ def run_pipeline(
     targets: Optional[Dict[int, ShipTargetConfig]] = None,
 ) -> int:
     """Execute complete end-to-end persona pipeline."""
+    if not legacy_batch_allowed():
+        print(BATCH_TAVERN_PIPELINE_FREEZE_MESSAGE)
+        return 2
     if targets is None:
         targets = resolve_targets(raw_dir, batch=batch, limit=limit, faction=faction, groups=groups)
     target_groups = groups or sorted(targets.keys())
@@ -359,6 +373,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         raw_dir = getattr(args, "raw_dir", DEFAULT_RAW_DIR)
         output_dir = getattr(args, "output_dir", DEFAULT_DATA_DIR)
         re_export = getattr(args, "re_export", False)
+        if re_export and not legacy_batch_allowed():
+            print(BATCH_TAVERN_PIPELINE_FREEZE_MESSAGE)
+            return 2
         return run_reconciliation(
             raw_dir=raw_dir,
             output_dir=output_dir,
