@@ -62,6 +62,10 @@ class NativeChatHTTPServer(ThreadingHTTPServer):
         self.engine = engine
 
 
+class RejectedWriteRequest(PermissionError):
+    """Raised when a browser cross-site or non-JSON write reaches the local API."""
+
+
 class NativeChatHandler(BaseHTTPRequestHandler):
     server: NativeChatHTTPServer
 
@@ -100,6 +104,7 @@ class NativeChatHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 - stdlib handler API
         parsed = urlparse(self.path)
         try:
+            self._validate_write_request()
             payload = self._read_json()
             if parsed.path == "/api/chat":
                 reply = self.server.engine.send(
@@ -121,11 +126,34 @@ class NativeChatHandler(BaseHTTPRequestHandler):
                 )
                 return
             self.send_error(404)
+        except RejectedWriteRequest as exc:
+            self._send_json({"error": str(exc)}, status=403)
         except Exception as exc:
             self._send_json({"error": str(exc)}, status=400)
 
     def log_message(self, format: str, *args) -> None:
         del format, args
+
+    def _validate_write_request(self) -> None:
+        if self.headers.get_content_type() != "application/json":
+            raise RejectedWriteRequest("write requests require application/json")
+        fetch_site = self.headers.get("Sec-Fetch-Site", "").lower()
+        if fetch_site == "cross-site":
+            raise RejectedWriteRequest("cross-site write rejected")
+        request_host = self.headers.get("Host", "").lower()
+        request_hostname = urlparse(f"//{request_host}").hostname or ""
+        if request_hostname not in {
+            "localhost",
+            "127.0.0.1",
+            "::1",
+        } and not request_hostname.endswith(".localhost"):
+            raise RejectedWriteRequest("write requests are loopback-only")
+        origin = self.headers.get("Origin")
+        if not origin:
+            return
+        origin_host = urlparse(origin).netloc.lower()
+        if not origin_host or origin_host != request_host:
+            raise RejectedWriteRequest("cross-origin write rejected")
 
     def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length", "0"))

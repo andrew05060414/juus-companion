@@ -9,7 +9,8 @@ from pipeline.cli import run_pipeline
 from tests.test_extractor import setup_fictional_raw_tables
 
 
-def test_e2e_pipeline_fictional_run(tmp_path: Path):
+def test_e2e_pipeline_fictional_run(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("JUUS_ALLOW_LEGACY_TAVERN_BATCH", "1")
     raw_dir = tmp_path / "raw"
     output_dir = tmp_path / "output"
 

@@ -16,9 +16,10 @@ from .models import GatewayRouter, ModelProfile
 from .personas import PERSONA_BY_ID, PERSONAS, NativePersona
 from .prompt import DailyContext, build_messages
 
-_ASTERISK_ACTION = re.compile(r"[*＊][^*＊\r\n]{1,160}[*＊]")
+_ASTERISK_ACTION = re.compile(r"[*＊][\s\S]{1,160}?[*＊]")
 _TEMPLATE_MACRO = re.compile(r"\{\{[^{}\r\n]+\}\}")
 _STAGE_LINE = re.compile(r"^\s*(?:旁白|场景|动作|舞台|narration|action)\s*[:：]", re.IGNORECASE)
+_BUBBLE_TAG = re.compile(r"<bubble>(.*?)</bubble>", re.DOTALL | re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,12 +42,29 @@ class EngineError:
     configured: bool
 
 
-def clean_model_output(text: str) -> str:
-    """Remove stage-play residue before the bubble parser sees model text."""
-    cleaned = _ASTERISK_ACTION.sub("", text)
-    cleaned = _TEMPLATE_MACRO.sub("指挥官", cleaned)
-    lines = [line for line in cleaned.splitlines() if not _STAGE_LINE.search(line)]
+def _without_stage_lines(text: str) -> str:
+    lines = [line for line in text.splitlines() if not _STAGE_LINE.search(line)]
     return "\n".join(lines).strip()
+
+
+def clean_model_output(text: str) -> str:
+    """Remove stage-play residue bubble-by-bubble before parsing model text."""
+    cleaned = _TEMPLATE_MACRO.sub("指挥官", text)
+    cleaned = _ASTERISK_ACTION.sub("", cleaned)
+    parts: list[str] = []
+    position = 0
+    for match in _BUBBLE_TAG.finditer(cleaned):
+        outside = _without_stage_lines(cleaned[position : match.start()])
+        if outside:
+            parts.append(outside)
+        bubble_text = _without_stage_lines(match.group(1))
+        if bubble_text:
+            parts.append(f"<bubble>{bubble_text}</bubble>")
+        position = match.end()
+    tail = _without_stage_lines(cleaned[position:])
+    if tail:
+        parts.append(tail)
+    return "\n".join(parts).strip()
 
 
 def _history_window(

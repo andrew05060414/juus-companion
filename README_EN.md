@@ -44,7 +44,7 @@ An AI-powered Azur Lane fan companion that **actively messages you**: each shipg
 | Directory | Module Description | License | Status |
 |---|---|:---:|:---:|
 | `server/` | Juus Brain service: persona registry, sessions, director, proactive scheduler, delivery ledger | AGPL-3.0 | Core contracts & API draft complete |
-| `pipeline/` | Persona pipeline foundation: registry, extraction, validation, and exporters | AGPL-3.0 | Batch tavern-card entrypoints frozen |
+| `pipeline/` | Persona pipeline foundation: registry, extraction, validation, and exporters | AGPL-3.0 | End-to-end tavern-card entrypoints frozen |
 | `deploy/` | Self-hosting templates: Docker Compose, environment templates, ntfy push server | AGPL-3.0 | Template ready |
 | `adapters/` | External adapters: AstrBot integration, Chronicle personal memory connector | AGPL-3.0 | Planned |
 | `app-android/` | Android client (forked from [oneroomlife/blyy](https://github.com/oneroomlife/blyy)) | GPL-3.0 | Source audited, awaiting integration |
@@ -101,11 +101,13 @@ uv run python tools/audit_release.py
 
 ## Persona Data Pipeline
 
-The pipeline keeps its registry, extraction, validation, and exporter foundation. Batch SillyTavern persona-card generation entrypoints were frozen after the 2026-11-26 correction and are no longer the current product direction. All extracted texts and generated persona cards remain inside the gitignored `data/` folder, ensuring zero copyright infringement in source control:
+The pipeline keeps its registry, extraction, validation, and exporter foundation. End-to-end SillyTavern persona-card generation entrypoints were frozen after the 2026-11-26 correction and are no longer the current product direction. All extracted texts and generated persona cards remain inside the gitignored `data/` folder, ensuring zero copyright infringement in source control:
 
 ```sh
-uv run python pipeline/run.py
+# The end-to-end persona-card generation entrypoint is frozen; do not run uv run python pipeline/run.py.
+# Set JUUS_ALLOW_LEGACY_TAVERN_BATCH=1 only when explicitly re-reviewing the legacy pipeline.
 
+# Run pipeline-focused tests for the retained registry, extraction, validation, and exporter foundation
 uv run pytest tests/test_batch.py tests/test_e2e_pipeline.py tests/test_exporter.py tests/test_extractor.py tests/test_fetcher.py tests/test_generator.py tests/test_validator.py
 ```
 

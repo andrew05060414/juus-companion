@@ -139,7 +139,7 @@ def run_pipeline(
     targets: Optional[Dict[int, ShipTargetConfig]] = None,
 ) -> int:
     """Execute complete end-to-end persona pipeline."""
-    if batch and not legacy_batch_allowed():
+    if not legacy_batch_allowed():
         print(BATCH_TAVERN_PIPELINE_FREEZE_MESSAGE)
         return 2
     if targets is None:

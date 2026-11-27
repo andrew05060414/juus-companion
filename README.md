@@ -44,7 +44,7 @@
 | 目录 | 模块内容 | 许可证 | 状态 |
 |---|---|:---:|:---:|
 | `server/` | 啾信大脑：角色注册表、会话、群聊导演、主动调度、投递账本、推送 | AGPL-3.0 | 架构与接口已定稿，骨架就绪 |
-| `pipeline/` | 人设流水线底座：注册表、抽取、质检与导出器 | AGPL-3.0 | 批量酒馆角色卡运行入口已冻结 |
+| `pipeline/` | 人设流水线底座：注册表、抽取、质检与导出器 | AGPL-3.0 | 酒馆角色卡端到端生成入口已冻结 |
 | `deploy/` | 开源自部署：Docker Compose 模板、环境变量配置、ntfy 必达推送 | AGPL-3.0 | 模板与指南完备 |
 | `adapters/` | 外部适配层：AstrBot 插件、Chronicle 记忆系统集成 | AGPL-3.0 | 规划中 |
 | `app-android/` | Android 原生客户端（fork 自 [oneroomlife/blyy](https://github.com/oneroomlife/blyy)） | GPL-3.0 | 源码审计完成，待集成接入 |
@@ -106,10 +106,10 @@ uv run python tools/audit_release.py
 人设流水线保留注册表、抽取、质检和导出底座；批量 SillyTavern 角色卡生成入口已按 2026-11-26 纠偏冻结，不再是当前推进方向。所有游戏原文素材与生成的私有人设卡均保存在本地 `data/`（已被 `.gitignore` 忽略），严格遵守数据红线。
 
 ```sh
-# 运行流水线
-uv run python pipeline/run.py
+# 端到端角色卡生成入口已冻结；不要运行 uv run python pipeline/run.py。
+# 只有明确复审旧管线时，才临时设置 JUUS_ALLOW_LEGACY_TAVERN_BATCH=1。
 
-# 运行流水线专项测试
+# 运行流水线专项测试（覆盖仍保留的注册表、抽取、质检与导出底座）
 uv run pytest tests/test_batch.py tests/test_e2e_pipeline.py tests/test_exporter.py tests/test_extractor.py tests/test_fetcher.py tests/test_generator.py tests/test_validator.py
 ```
 

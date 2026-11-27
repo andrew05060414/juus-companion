@@ -74,7 +74,7 @@ uv run python -m prototypes.native_chat.run --no-demo-fallback
 
 `pipeline` 的注册表、导出器和既有测试底座保留，但批量 SillyTavern 角色卡运行入口默认冻结：
 
-- `pipeline/run.py run --batch` 返回退出码 2；
+- `pipeline/run.py` / `pipeline/run.py run`（包括默认试点名单和 `--batch`）返回退出码 2；
 - `pipeline/run.py reconcile --re-export` 返回退出码 2；
 - 只有明确复审旧管线时才可临时设置 `JUUS_ALLOW_LEGACY_TAVERN_BATCH=1`。
 

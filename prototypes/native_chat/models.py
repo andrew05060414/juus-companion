@@ -22,31 +22,57 @@ class ModelProfile:
         return bool(self.base_url)
 
 
+_NO_KEY_ENV = "JUUS_NATIVE_CHAT_NO_API_KEY"
+_PLACEHOLDER_MARKERS = ("example.invalid", "replace-with", "placeholder", "changeme")
+
+
+def _usable_env(env: Mapping[str, str], name: str) -> str:
+    value = env.get(name, "").strip()
+    if not value:
+        return ""
+    lowered = value.lower()
+    if any(marker in lowered for marker in _PLACEHOLDER_MARKERS):
+        return ""
+    return value
+
+
+def _first_usable_env(env: Mapping[str, str], *names: str) -> str:
+    for name in names:
+        value = _usable_env(env, name)
+        if value:
+            return value
+    return ""
+
+
+def _shared_key_env(env: Mapping[str, str]) -> str:
+    for name in ("JUUS_MODEL_API_KEY", "NINEROUTER_KEY"):
+        if _usable_env(env, name):
+            return name
+    return _NO_KEY_ENV
+
+
 def load_model_profiles(environ: Mapping[str, str] | None = None) -> tuple[ModelProfile, ...]:
     """Load two logical comparison lanes without hardcoding endpoints or secrets."""
 
     env = os.environ if environ is None else environ
-    shared_key_env = (
-        "JUUS_MODEL_API_KEY"
-        if env.get("JUUS_MODEL_API_KEY") or not env.get("NINEROUTER_KEY")
-        else "NINEROUTER_KEY"
-    )
+    shared_base_url = _first_usable_env(env, "JUUS_MODEL_BASE_URL", "NINEROUTER_URL")
+    shared_key = _shared_key_env(env)
 
     def profile(prefix: str, profile_id: str, label: str, default_model: str) -> ModelProfile:
+        lane_base_url = _usable_env(env, f"JUUS_{prefix}_BASE_URL")
+        lane_key = f"JUUS_{prefix}_API_KEY" if _usable_env(env, f"JUUS_{prefix}_API_KEY") else ""
+        if lane_base_url:
+            base_url = lane_base_url
+            api_key_env = lane_key or _NO_KEY_ENV
+        else:
+            base_url = shared_base_url
+            api_key_env = lane_key or shared_key
         return ModelProfile(
             id=profile_id,
             label=label,
             model_name=env.get(f"JUUS_{prefix}_MODEL", default_model).strip() or default_model,
-            base_url=(
-                env.get(f"JUUS_{prefix}_BASE_URL")
-                or env.get("JUUS_MODEL_BASE_URL")
-                or env.get("NINEROUTER_URL")
-                or ""
-            ).strip()
-            or None,
-            api_key_env=f"JUUS_{prefix}_API_KEY"
-            if env.get(f"JUUS_{prefix}_API_KEY")
-            else shared_key_env,
+            base_url=base_url or None,
+            api_key_env=api_key_env,
         )
 
     return (
