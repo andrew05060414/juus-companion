@@ -47,21 +47,25 @@ def _without_stage_lines(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def clean_model_output(text: str) -> str:
-    """Remove stage-play residue bubble-by-bubble before parsing model text."""
+def _clean_output_segment(text: str) -> str:
     cleaned = _TEMPLATE_MACRO.sub("指挥官", text)
     cleaned = _ASTERISK_ACTION.sub("", cleaned)
+    return _without_stage_lines(cleaned)
+
+
+def clean_model_output(text: str) -> str:
+    """Remove stage-play residue inside each bubble or untagged segment."""
     parts: list[str] = []
     position = 0
-    for match in _BUBBLE_TAG.finditer(cleaned):
-        outside = _without_stage_lines(cleaned[position : match.start()])
+    for match in _BUBBLE_TAG.finditer(text):
+        outside = _clean_output_segment(text[position : match.start()])
         if outside:
             parts.append(outside)
-        bubble_text = _without_stage_lines(match.group(1))
+        bubble_text = _clean_output_segment(match.group(1))
         if bubble_text:
             parts.append(f"<bubble>{bubble_text}</bubble>")
         position = match.end()
-    tail = _without_stage_lines(cleaned[position:])
+    tail = _clean_output_segment(text[position:])
     if tail:
         parts.append(tail)
     return "\n".join(parts).strip()

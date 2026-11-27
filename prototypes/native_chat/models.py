@@ -36,27 +36,25 @@ def _usable_env(env: Mapping[str, str], name: str) -> str:
     return value
 
 
-def _first_usable_env(env: Mapping[str, str], *names: str) -> str:
-    for name in names:
-        value = _usable_env(env, name)
-        if value:
-            return value
-    return ""
+def _paired_shared_gateway(env: Mapping[str, str]) -> tuple[str, str]:
+    juus_base_url = _usable_env(env, "JUUS_MODEL_BASE_URL")
+    if juus_base_url:
+        key_env = "JUUS_MODEL_API_KEY" if _usable_env(env, "JUUS_MODEL_API_KEY") else _NO_KEY_ENV
+        return juus_base_url, key_env
 
+    ninerouter_base_url = _usable_env(env, "NINEROUTER_URL")
+    if ninerouter_base_url:
+        key_env = "NINEROUTER_KEY" if _usable_env(env, "NINEROUTER_KEY") else _NO_KEY_ENV
+        return ninerouter_base_url, key_env
 
-def _shared_key_env(env: Mapping[str, str]) -> str:
-    for name in ("JUUS_MODEL_API_KEY", "NINEROUTER_KEY"):
-        if _usable_env(env, name):
-            return name
-    return _NO_KEY_ENV
+    return "", _NO_KEY_ENV
 
 
 def load_model_profiles(environ: Mapping[str, str] | None = None) -> tuple[ModelProfile, ...]:
     """Load two logical comparison lanes without hardcoding endpoints or secrets."""
 
     env = os.environ if environ is None else environ
-    shared_base_url = _first_usable_env(env, "JUUS_MODEL_BASE_URL", "NINEROUTER_URL")
-    shared_key = _shared_key_env(env)
+    shared_base_url, shared_key_env = _paired_shared_gateway(env)
 
     def profile(prefix: str, profile_id: str, label: str, default_model: str) -> ModelProfile:
         lane_base_url = _usable_env(env, f"JUUS_{prefix}_BASE_URL")
@@ -66,7 +64,7 @@ def load_model_profiles(environ: Mapping[str, str] | None = None) -> tuple[Model
             api_key_env = lane_key or _NO_KEY_ENV
         else:
             base_url = shared_base_url
-            api_key_env = lane_key or shared_key
+            api_key_env = shared_key_env
         return ModelProfile(
             id=profile_id,
             label=label,

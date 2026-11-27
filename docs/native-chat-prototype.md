@@ -1,6 +1,6 @@
 # 3 位主力角色本地单聊原型
 
-> 创建日期：2026-11-27 ｜ 最后更新：2026-11-27 ｜ 版本：v0.1
+> 创建日期：2026-11-27 ｜ 最后更新：2026-11-27 ｜ 版本：v0.2
 
 ## 定位
 
@@ -42,7 +42,7 @@ JUUS_GEMINI_MODEL=gemini-4-carbon
 JUUS_SONNET_MODEL=sonnet
 ```
 
-如果本机已经配置 9router，原型也会读取现有环境变量 `NINEROUTER_URL`、`NINEROUTER_KEY` 和 `NINEROUTER_SONNET_MODEL` 作为共享后端 fallback；`JUUS_*` 配置优先。
+如果本机已经配置 9router，原型也会读取现有环境变量 `NINEROUTER_URL`、`NINEROUTER_KEY` 和 `NINEROUTER_SONNET_MODEL` 作为共享后端 fallback；`JUUS_*` 配置优先。共享后端的地址和密钥只按来源成对使用：命中 `JUUS_MODEL_BASE_URL` 时只读取 `JUUS_MODEL_API_KEY`，回退到 `NINEROUTER_URL` 时只读取 `NINEROUTER_KEY`；对应密钥缺失或仍是占位值时不交叉借用，也不发送 `Authorization`。
 
 也可以给两个 lane 分别配置网关与密钥：
 
